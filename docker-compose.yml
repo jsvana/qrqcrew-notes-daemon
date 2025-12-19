@@ -1,0 +1,11 @@
+services:
+  qrqcrew-notes-daemon:
+    build: .
+    container_name: qrqcrew-notes-daemon
+    restart: unless-stopped
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - RUST_LOG=info
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+    command: ["--config", "/app/config.toml"]
