@@ -1,5 +1,5 @@
 # Build stage
-FROM rustlang/rust:nightly-slim-bookworm AS builder
+FROM rust:nightly-bookworm-slim AS builder
 
 WORKDIR /app
 
