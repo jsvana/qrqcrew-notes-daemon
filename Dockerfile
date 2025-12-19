@@ -1,13 +1,15 @@
 # Build stage
-FROM rust:nightly-bookworm-slim AS builder
+FROM rust:slim-bookworm AS builder
 
 WORKDIR /app
 
-# Install build dependencies
+# Install build dependencies and nightly toolchain
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && rustup toolchain install nightly \
+    && rustup default nightly
 
 # Copy source
 COPY Cargo.toml Cargo.lock* ./
