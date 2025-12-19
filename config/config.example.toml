@@ -1,0 +1,17 @@
+roster_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRBfNWrtgvUxTJQL96aK4g7ctZZ-Z572mBEbsscarGQWrbHg66yfxf-Jxw-bZ1ke7KX0zhJk6nUFWhL/pub?output=csv"
+
+[github]
+token = "${GITHUB_TOKEN}"  # Use environment variable
+owner = "jsvana"
+repo = "qrqcrew-site"
+branch = "main"
+file_path = "callsign-notes.txt"
+commit_author_name = "QRQ Crew Bot"
+commit_author_email = "qrqcrew-bot@noreply.github.com"
+
+[daemon]
+sync_interval_secs = 3600  # 1 hour
+run_once = false
+
+[output]
+emoji = "⚓"
