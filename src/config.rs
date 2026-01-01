@@ -84,35 +84,90 @@ mod tests {
     #[test]
     fn test_config_load() {
         let config_content = r#"
+[[organizations]]
+name = "qrqcrew"
+enabled = true
 roster_url = "https://example.com/roster.csv"
+callsign_column = "call"
+number_column = "qc #"
+skip_rows = 0
+emoji = "⚓"
+label = "QRQ Crew"
+output_file = "qrqcrew-notes.txt"
+
+[[organizations]]
+name = "cwops"
+enabled = false
+roster_url = "https://example.com/cwops.csv"
+callsign_column = "Callsign"
+number_column = "Number"
+skip_rows = 6
+emoji = "🎹"
+label = "CWops"
+output_file = "cwops-notes.txt"
 
 [github]
 token = "test_token"
 owner = "testowner"
 repo = "testrepo"
 branch = "main"
-file_path = "test.txt"
 commit_author_name = "Test Bot"
 commit_author_email = "test@example.com"
 
 [daemon]
 sync_interval_secs = 3600
 run_once = true
-
-[output]
-emoji = "⚓"
 "#;
 
-        // Use .toml suffix so config crate recognizes the format
         let mut temp_file = Builder::new().suffix(".toml").tempfile().unwrap();
         temp_file.write_all(config_content.as_bytes()).unwrap();
 
         let config = Config::load(Some(temp_file.path().to_path_buf())).unwrap();
 
-        assert_eq!(config.roster_url, "https://example.com/roster.csv");
+        assert_eq!(config.organizations.len(), 2);
+        assert_eq!(config.organizations[0].name, "qrqcrew");
+        assert!(config.organizations[0].enabled);
+        assert_eq!(config.organizations[0].callsign_column, "call");
+        assert_eq!(config.organizations[1].name, "cwops");
+        assert!(!config.organizations[1].enabled);
+        assert_eq!(config.organizations[1].skip_rows, 6);
         assert_eq!(config.github.owner, "testowner");
         assert_eq!(config.daemon.sync_interval_secs, 3600);
-        assert!(config.daemon.run_once);
-        assert_eq!(config.output.emoji, "⚓");
+    }
+
+    #[test]
+    fn test_config_default_enabled() {
+        let config_content = r#"
+[[organizations]]
+name = "test"
+roster_url = "https://example.com/test.csv"
+callsign_column = "call"
+number_column = "number"
+emoji = "🔥"
+label = "Test"
+output_file = "test.txt"
+
+[github]
+token = "test_token"
+owner = "testowner"
+repo = "testrepo"
+branch = "main"
+commit_author_name = "Test Bot"
+commit_author_email = "test@example.com"
+
+[daemon]
+sync_interval_secs = 3600
+run_once = true
+"#;
+
+        let mut temp_file = Builder::new().suffix(".toml").tempfile().unwrap();
+        temp_file.write_all(config_content.as_bytes()).unwrap();
+
+        let config = Config::load(Some(temp_file.path().to_path_buf())).unwrap();
+
+        // enabled should default to true when not specified
+        assert!(config.organizations[0].enabled);
+        // skip_rows should default to 0
+        assert_eq!(config.organizations[0].skip_rows, 0);
     }
 }
