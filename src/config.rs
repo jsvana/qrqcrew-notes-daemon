@@ -3,11 +3,29 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct Config {
+pub struct Organization {
+    pub name: String,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
     pub roster_url: String,
+    pub callsign_column: String,
+    pub number_column: String,
+    #[serde(default)]
+    pub skip_rows: usize,
+    pub emoji: String,
+    pub label: String,
+    pub output_file: String,
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Config {
+    pub organizations: Vec<Organization>,
     pub github: GitHubConfig,
     pub daemon: DaemonConfig,
-    pub output: OutputConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -16,7 +34,6 @@ pub struct GitHubConfig {
     pub owner: String,
     pub repo: String,
     pub branch: String,
-    pub file_path: String,
     pub commit_author_name: String,
     pub commit_author_email: String,
 }
@@ -25,11 +42,6 @@ pub struct GitHubConfig {
 pub struct DaemonConfig {
     pub sync_interval_secs: u64,
     pub run_once: bool,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct OutputConfig {
-    pub emoji: String,
 }
 
 impl Config {
