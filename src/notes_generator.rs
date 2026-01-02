@@ -93,37 +93,36 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_empty() {
+    fn test_generate_cwops_format() {
         let generator = NotesGenerator::new(
-            "⚓".to_string(),
-            "QRQ Crew".to_string(),
-            Some("https://qrqcrew.club".to_string()),
+            "🎹".to_string(),
+            "CWops".to_string(),
+            Some("https://cwops.org".to_string()),
         );
+
+        let members = vec![Member {
+            callsign: "W6JSV".to_string(),
+            qc_number: 1234,
+        }];
+
+        let output = generator.generate(&members);
+
+        assert!(output.contains("# CWops Callsign Notes for Ham2K PoLo"));
+        assert!(output.contains("W6JSV 🎹 CWops #1234"));
+    }
+
+    #[test]
+    fn test_generate_empty() {
+        let generator = NotesGenerator::new("⚓".to_string(), "Test".to_string(), None);
         let output = generator.generate(&[]);
 
-        // Should still have header
-        assert!(output.contains("# QRQ Crew Callsign Notes"));
+        assert!(output.contains("# Test Callsign Notes"));
+        assert!(!output.contains("# https://")); // No URL when None
 
-        // No callsign entries
         let entries: Vec<&str> = output
             .lines()
             .filter(|l| !l.starts_with('#') && !l.is_empty())
             .collect();
         assert!(entries.is_empty());
-    }
-
-    #[test]
-    fn test_generate_without_url() {
-        let generator = NotesGenerator::new("🎯".to_string(), "Test Org".to_string(), None);
-        let output = generator.generate(&[]);
-
-        // Should have label in header
-        assert!(output.contains("# Test Org Callsign Notes for Ham2K PoLo"));
-        // Should NOT contain a URL line (only the standard comment lines)
-        let url_lines: Vec<&str> = output
-            .lines()
-            .filter(|l| l.starts_with("# http"))
-            .collect();
-        assert!(url_lines.is_empty());
     }
 }
