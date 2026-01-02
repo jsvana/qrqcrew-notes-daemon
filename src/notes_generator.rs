@@ -3,23 +3,31 @@ use chrono::Utc;
 
 pub struct NotesGenerator {
     emoji: String,
+    label: String,
+    url: String,
 }
 
 impl NotesGenerator {
-    pub fn new(emoji: String) -> Self {
-        Self { emoji }
+    pub fn new(emoji: String, label: String, url: Option<String>) -> Self {
+        Self {
+            emoji,
+            label,
+            url: url.unwrap_or_default(),
+        }
     }
 
     pub fn generate(&self, members: &[Member]) -> String {
         let mut output = String::new();
 
         // Header comments
-        output.push_str("# QRQ Crew Callsign Notes for Ham2K PoLo\n");
+        output.push_str(&format!("# {} Callsign Notes for Ham2K PoLo\n", self.label));
         output.push_str(&format!(
             "# Generated: {}\n",
             Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
         ));
-        output.push_str("# https://qrqcrew.club\n");
+        if !self.url.is_empty() {
+            output.push_str(&format!("# {}\n", self.url));
+        }
         output.push_str("# Do not edit manually - this file is auto-generated\n");
         output.push('\n');
 
@@ -29,8 +37,8 @@ impl NotesGenerator {
 
         for member in sorted {
             output.push_str(&format!(
-                "{} {} QRQ Crew #{}\n",
-                member.callsign, self.emoji, member.qc_number
+                "{} {} {} #{}\n",
+                member.callsign, self.emoji, self.label, member.qc_number
             ));
         }
 
@@ -44,7 +52,11 @@ mod tests {
 
     #[test]
     fn test_generate_notes() {
-        let generator = NotesGenerator::new("⚓".to_string());
+        let generator = NotesGenerator::new(
+            "⚓".to_string(),
+            "QRQ Crew".to_string(),
+            Some("https://qrqcrew.club".to_string()),
+        );
 
         let members = vec![
             Member {
@@ -82,7 +94,11 @@ mod tests {
 
     #[test]
     fn test_generate_empty() {
-        let generator = NotesGenerator::new("⚓".to_string());
+        let generator = NotesGenerator::new(
+            "⚓".to_string(),
+            "QRQ Crew".to_string(),
+            Some("https://qrqcrew.club".to_string()),
+        );
         let output = generator.generate(&[]);
 
         // Should still have header
@@ -94,5 +110,20 @@ mod tests {
             .filter(|l| !l.starts_with('#') && !l.is_empty())
             .collect();
         assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn test_generate_without_url() {
+        let generator = NotesGenerator::new("🎯".to_string(), "Test Org".to_string(), None);
+        let output = generator.generate(&[]);
+
+        // Should have label in header
+        assert!(output.contains("# Test Org Callsign Notes for Ham2K PoLo"));
+        // Should NOT contain a URL line (only the standard comment lines)
+        let url_lines: Vec<&str> = output
+            .lines()
+            .filter(|l| l.starts_with("# http"))
+            .collect();
+        assert!(url_lines.is_empty());
     }
 }
