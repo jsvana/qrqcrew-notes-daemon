@@ -232,4 +232,18 @@ mod tests {
         let headers = csv::StringRecord::from(vec!["Callsign", "Name", "Date"]);
         assert_eq!(fetcher.find_column_by_name(&headers, "QC #"), None);
     }
+
+    #[test]
+    fn test_find_column_with_whitespace() {
+        let fetcher = CsvFetcher::new(
+            "http://example.com".to_string(),
+            "call".to_string(),
+            "qc #".to_string(),
+            0,
+        );
+
+        let headers = csv::StringRecord::from(vec!["  call  ", "name", " qc # "]);
+        assert_eq!(fetcher.find_column_by_name(&headers, "call"), Some(0));
+        assert_eq!(fetcher.find_column_by_name(&headers, "qc #"), Some(2));
+    }
 }
