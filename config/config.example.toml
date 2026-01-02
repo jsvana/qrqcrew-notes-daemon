@@ -1,17 +1,35 @@
+# QRQ Crew organization
+[[organizations]]
+name = "qrqcrew"
+enabled = true
 roster_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRBfNWrtgvUxTJQL96aK4g7ctZZ-Z572mBEbsscarGQWrbHg66yfxf-Jxw-bZ1ke7KX0zhJk6nUFWhL/pub?output=csv"
+callsign_column = "call"
+number_column = "qc #"
+skip_rows = 0
+emoji = "⚓"
+label = "QRQ Crew"
+output_file = "qrqcrew-notes.txt"
+
+# CWops organization
+[[organizations]]
+name = "cwops"
+enabled = true
+roster_url = "https://docs.google.com/spreadsheets/d/1Ew8b1WAorFRCixGRsr031atxmS0SsycvmOczS_fDqzc/export?format=csv"
+callsign_column = "Callsign"
+number_column = "Number"
+skip_rows = 6
+emoji = "🎹"
+label = "CWops"
+output_file = "cwops-notes.txt"
 
 [github]
 token = "${GITHUB_TOKEN}"  # Use environment variable
 owner = "jsvana"
 repo = "qrqcrew-site"
 branch = "main"
-file_path = "callsign-notes.txt"
 commit_author_name = "QRQ Crew Bot"
 commit_author_email = "qrqcrew-bot@noreply.github.com"
 
 [daemon]
 sync_interval_secs = 3600  # 1 hour
 run_once = false
-
-[output]
-emoji = "⚓"
