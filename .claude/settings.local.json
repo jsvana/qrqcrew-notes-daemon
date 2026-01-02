@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:cwops.org)",
+      "WebFetch(domain:docs.google.com)",
+      "WebFetch(domain:doc-14-8o-sheets.googleusercontent.com)",
+      "Bash(timeout 30 curl:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git -C /home/jsvana/projects/qrqcrew-notes-daemon log --oneline -5)",
+      "Bash(cargo test:*)"
+    ]
+  }
+}

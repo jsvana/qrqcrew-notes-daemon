@@ -3,9 +3,9 @@
 name = "qrqcrew"
 enabled = true
 roster_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRBfNWrtgvUxTJQL96aK4g7ctZZ-Z572mBEbsscarGQWrbHg66yfxf-Jxw-bZ1ke7KX0zhJk6nUFWhL/pub?output=csv"
-callsign_column = "call"
-number_column = "qc #"
-skip_rows = 0
+callsign_column = "Callsign"
+number_column = "QC #"
+skip_rows = 6
 emoji = "⚓"
 label = "QRQ Crew"
 output_file = "qrqcrew-notes.txt"
