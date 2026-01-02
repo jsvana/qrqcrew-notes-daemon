@@ -9,7 +9,6 @@ pub struct GitHubClient {
     owner: String,
     repo: String,
     branch: String,
-    file_path: String,
     author_name: String,
     author_email: String,
 }
@@ -26,19 +25,18 @@ impl GitHubClient {
             owner: config.owner.clone(),
             repo: config.repo.clone(),
             branch: config.branch.clone(),
-            file_path: config.file_path.clone(),
             author_name: config.commit_author_name.clone(),
             author_email: config.commit_author_email.clone(),
         })
     }
 
     /// Get current file SHA (needed for updates)
-    pub async fn get_file_sha(&self) -> Result<Option<String>> {
+    pub async fn get_file_sha(&self, file_path: &str) -> Result<Option<String>> {
         let result = self
             .client
             .repos(&self.owner, &self.repo)
             .get_content()
-            .path(&self.file_path)
+            .path(file_path)
             .r#ref(&self.branch)
             .send()
             .await;
@@ -59,12 +57,12 @@ impl GitHubClient {
     }
 
     /// Get current file content
-    pub async fn get_file_content(&self) -> Result<Option<String>> {
+    pub async fn get_file_content(&self, file_path: &str) -> Result<Option<String>> {
         let result = self
             .client
             .repos(&self.owner, &self.repo)
             .get_content()
-            .path(&self.file_path)
+            .path(file_path)
             .r#ref(&self.branch)
             .send()
             .await;
@@ -73,7 +71,6 @@ impl GitHubClient {
             Ok(content) => {
                 if let Some(item) = content.items.first() {
                     if let Some(encoded_content) = &item.content {
-                        // Content comes base64 encoded with newlines
                         let clean_content: String = encoded_content
                             .chars()
                             .filter(|c| !c.is_whitespace())
@@ -99,12 +96,12 @@ impl GitHubClient {
     }
 
     /// Commit file (create or update)
-    pub async fn commit_file(&self, content: &str, message: &str) -> Result<()> {
-        let sha = self.get_file_sha().await?;
+    pub async fn commit_file(&self, file_path: &str, content: &str, message: &str) -> Result<()> {
+        let sha = self.get_file_sha(file_path).await?;
 
         debug!(
             "Committing to {}/{} branch {} file {}",
-            self.owner, self.repo, self.branch, self.file_path
+            self.owner, self.repo, self.branch, file_path
         );
 
         let repos = self.client.repos(&self.owner, &self.repo);
@@ -116,9 +113,8 @@ impl GitHubClient {
 
         match sha {
             Some(sha) => {
-                // Update existing file
                 repos
-                    .update_file(&self.file_path, message, content, &sha)
+                    .update_file(file_path, message, content, &sha)
                     .branch(&self.branch)
                     .commiter(author.clone())
                     .author(author)
@@ -127,9 +123,8 @@ impl GitHubClient {
                     .context("Failed to update file")?;
             }
             None => {
-                // Create new file
                 repos
-                    .create_file(&self.file_path, message, content)
+                    .create_file(file_path, message, content)
                     .branch(&self.branch)
                     .commiter(author.clone())
                     .author(author)
@@ -141,17 +136,16 @@ impl GitHubClient {
 
         info!(
             "Committed {} to {}/{}",
-            self.file_path, self.owner, self.repo
+            file_path, self.owner, self.repo
         );
 
         Ok(())
     }
 
     /// Check if content has changed (ignoring timestamp line)
-    pub async fn content_changed(&self, new_content: &str) -> Result<bool> {
-        match self.get_file_content().await? {
+    pub async fn content_changed(&self, file_path: &str, new_content: &str) -> Result<bool> {
+        match self.get_file_content(file_path).await? {
             Some(existing) => {
-                // Compare ignoring timestamp line
                 let existing_lines: Vec<&str> = existing
                     .lines()
                     .filter(|l| !l.starts_with("# Generated:"))
@@ -162,7 +156,7 @@ impl GitHubClient {
                     .collect();
                 Ok(existing_lines != new_lines)
             }
-            None => Ok(true), // File doesn't exist
+            None => Ok(true),
         }
     }
 }
