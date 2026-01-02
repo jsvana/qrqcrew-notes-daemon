@@ -13,11 +13,14 @@ pub struct Member {
 pub struct CsvFetcher {
     client: reqwest::Client,
     url: String,
+    callsign_column: String,
+    number_column: String,
+    skip_rows: usize,
     callsign_regex: Regex,
 }
 
 impl CsvFetcher {
-    pub fn new(url: String) -> Self {
+    pub fn new(url: String, callsign_column: String, number_column: String, skip_rows: usize) -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
@@ -26,7 +29,9 @@ impl CsvFetcher {
         Self {
             client,
             url,
-            // Callsign pattern: 1-2 letters, 1 digit, 1-4 letters
+            callsign_column,
+            number_column,
+            skip_rows,
             callsign_regex: Regex::new(r"^[A-Z]{1,2}\d[A-Z]{1,4}$").unwrap(),
         }
     }
@@ -34,49 +39,41 @@ impl CsvFetcher {
     pub async fn fetch_members(&self) -> Result<Vec<Member>> {
         let csv_data = self.fetch_with_retry(3).await?;
 
-        // Create reader without headers first - we need to find the header row
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(false)
             .from_reader(csv_data.as_bytes());
 
-        // Find the header row (first non-empty row with valid column names)
-        let mut headers: Option<csv::StringRecord> = None;
-        let mut header_row_num = 0;
         let mut records_iter = reader.records();
 
-        for (row_num, result) in records_iter.by_ref().enumerate() {
-            if let Ok(record) = result {
-                // Check if this looks like a header row
-                if let Some(first_col) = record.get(0) {
-                    let first = first_col.to_lowercase().trim().to_string();
-                    if first == "call" || first == "callsign" {
-                        headers = Some(record);
-                        header_row_num = row_num;
-                        break;
-                    }
-                }
-            }
+        // Skip metadata rows
+        for _ in 0..self.skip_rows {
+            records_iter.next();
         }
 
-        let headers = headers.context("Could not find header row in CSV")?;
-        debug!("Found header row at row {}", header_row_num + 1);
+        // Next row should be headers
+        let headers = records_iter
+            .next()
+            .context("CSV has no header row after skipping metadata")?
+            .context("Failed to parse header row")?;
+
+        debug!("Header row: {:?}", headers);
 
         let callsign_col = self
-            .find_callsign_column(&headers)
-            .context("Could not find callsign column in CSV")?;
+            .find_column_by_name(&headers, &self.callsign_column)
+            .with_context(|| format!("Could not find callsign column '{}' in CSV", self.callsign_column))?;
 
-        let qc_number_col = self
-            .find_qc_number_column(&headers)
-            .context("Could not find QC # column in CSV")?;
+        let number_col = self
+            .find_column_by_name(&headers, &self.number_column)
+            .with_context(|| format!("Could not find number column '{}' in CSV", self.number_column))?;
 
         debug!(
-            "Using column {} for callsigns, column {} for QC #",
-            callsign_col, qc_number_col
+            "Using column {} for callsigns, column {} for numbers",
+            callsign_col, number_col
         );
 
         let mut seen: HashSet<String> = HashSet::new();
         let mut members: Vec<Member> = Vec::new();
-        let data_start_row = header_row_num + 2; // 1-indexed, after header
+        let data_start_row = self.skip_rows + 2; // 1-indexed, after header
 
         for (row_num, result) in records_iter.enumerate() {
             let actual_row = data_start_row + row_num;
@@ -100,7 +97,7 @@ impl CsvFetcher {
                         }
 
                         // Parse QC number
-                        let qc_number = match record.get(qc_number_col) {
+                        let qc_number = match record.get(number_col) {
                             Some(num_str) => match num_str.trim().parse::<u32>() {
                                 Ok(n) => n,
                                 Err(_) => {
@@ -170,34 +167,13 @@ impl CsvFetcher {
         Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Unknown fetch error")))
     }
 
-    fn find_callsign_column(&self, headers: &csv::StringRecord) -> Option<usize> {
-        // Look for common column names
+    fn find_column_by_name(&self, headers: &csv::StringRecord, name: &str) -> Option<usize> {
+        let target = name.to_lowercase();
         for (i, header) in headers.iter().enumerate() {
-            let h = header.to_lowercase().trim().to_string();
-            if h == "call" || h == "callsign" || h == "call sign" {
+            if header.to_lowercase().trim() == target {
                 return Some(i);
             }
         }
-
-        // Fall back to first column if headers don't match
-        // but verify first few rows look like callsigns
-        if !headers.is_empty() {
-            debug!("No callsign column found by name, defaulting to first column");
-            return Some(0);
-        }
-
-        None
-    }
-
-    fn find_qc_number_column(&self, headers: &csv::StringRecord) -> Option<usize> {
-        // Look for QC # column
-        for (i, header) in headers.iter().enumerate() {
-            let h = header.to_lowercase().trim().to_string();
-            if h == "qc #" || h == "qc#" || h == "qc number" || h == "number" || h == "#" {
-                return Some(i);
-            }
-        }
-
         None
     }
 
@@ -210,9 +186,18 @@ impl CsvFetcher {
 mod tests {
     use super::*;
 
+    fn test_fetcher() -> CsvFetcher {
+        CsvFetcher::new(
+            "http://example.com".to_string(),
+            "Call".to_string(),
+            "QC #".to_string(),
+            0,
+        )
+    }
+
     #[test]
     fn test_callsign_validation() {
-        let fetcher = CsvFetcher::new("http://example.com".to_string());
+        let fetcher = test_fetcher();
 
         // Valid callsigns
         assert!(fetcher.is_valid_callsign("W6JSV"));
@@ -231,38 +216,20 @@ mod tests {
     }
 
     #[test]
-    fn test_find_callsign_column() {
-        let fetcher = CsvFetcher::new("http://example.com".to_string());
+    fn test_find_column_by_name() {
+        let fetcher = test_fetcher();
 
         let headers = csv::StringRecord::from(vec!["Name", "Call", "Number"]);
-        assert_eq!(fetcher.find_callsign_column(&headers), Some(1));
-
-        let headers = csv::StringRecord::from(vec!["Callsign", "Name", "QC#"]);
-        assert_eq!(fetcher.find_callsign_column(&headers), Some(0));
-
-        let headers = csv::StringRecord::from(vec!["Member", "Call Sign", "Date"]);
-        assert_eq!(fetcher.find_callsign_column(&headers), Some(1));
-
-        // No matching header, defaults to first column
-        let headers = csv::StringRecord::from(vec!["K4MW", "John", "1"]);
-        assert_eq!(fetcher.find_callsign_column(&headers), Some(0));
-    }
-
-    #[test]
-    fn test_find_qc_number_column() {
-        let fetcher = CsvFetcher::new("http://example.com".to_string());
+        assert_eq!(fetcher.find_column_by_name(&headers, "Call"), Some(1));
+        assert_eq!(fetcher.find_column_by_name(&headers, "call"), Some(1));
+        assert_eq!(fetcher.find_column_by_name(&headers, "CALL"), Some(1));
 
         let headers = csv::StringRecord::from(vec!["Callsign", "Name", "QC #"]);
-        assert_eq!(fetcher.find_qc_number_column(&headers), Some(2));
+        assert_eq!(fetcher.find_column_by_name(&headers, "Callsign"), Some(0));
+        assert_eq!(fetcher.find_column_by_name(&headers, "QC #"), Some(2));
 
-        let headers = csv::StringRecord::from(vec!["Call", "QC#", "Date"]);
-        assert_eq!(fetcher.find_qc_number_column(&headers), Some(1));
-
-        let headers = csv::StringRecord::from(vec!["Member", "#", "Notes"]);
-        assert_eq!(fetcher.find_qc_number_column(&headers), Some(1));
-
-        // No matching header
+        // Column not found
         let headers = csv::StringRecord::from(vec!["Callsign", "Name", "Date"]);
-        assert_eq!(fetcher.find_qc_number_column(&headers), None);
+        assert_eq!(fetcher.find_column_by_name(&headers, "QC #"), None);
     }
 }
