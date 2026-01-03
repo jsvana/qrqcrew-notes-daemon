@@ -20,7 +20,12 @@ pub struct CsvFetcher {
 }
 
 impl CsvFetcher {
-    pub fn new(url: String, callsign_column: String, number_column: String, skip_rows: usize) -> Self {
+    pub fn new(
+        url: String,
+        callsign_column: String,
+        number_column: String,
+        skip_rows: usize,
+    ) -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
@@ -60,11 +65,21 @@ impl CsvFetcher {
 
         let callsign_col = self
             .find_column_by_name(&headers, &self.callsign_column)
-            .with_context(|| format!("Could not find callsign column '{}' in CSV", self.callsign_column))?;
+            .with_context(|| {
+                format!(
+                    "Could not find callsign column '{}' in CSV",
+                    self.callsign_column
+                )
+            })?;
 
         let number_col = self
             .find_column_by_name(&headers, &self.number_column)
-            .with_context(|| format!("Could not find number column '{}' in CSV", self.number_column))?;
+            .with_context(|| {
+                format!(
+                    "Could not find number column '{}' in CSV",
+                    self.number_column
+                )
+            })?;
 
         debug!(
             "Using column {} for callsigns, column {} for numbers",

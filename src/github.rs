@@ -19,7 +19,10 @@ impl GitHubClient {
     }
 
     /// Create a GitHubClient with optional per-org overrides for owner/repo/branch
-    pub fn with_overrides(config: &GitHubConfig, org_config: Option<&OrgGitHubConfig>) -> Result<Self> {
+    pub fn with_overrides(
+        config: &GitHubConfig,
+        org_config: Option<&OrgGitHubConfig>,
+    ) -> Result<Self> {
         let client = Octocrab::builder()
             .personal_token(config.token.clone())
             .build()
@@ -31,7 +34,11 @@ impl GitHubClient {
                 org.repo.clone().unwrap_or_else(|| config.repo.clone()),
                 org.branch.clone().unwrap_or_else(|| config.branch.clone()),
             ),
-            None => (config.owner.clone(), config.repo.clone(), config.branch.clone()),
+            None => (
+                config.owner.clone(),
+                config.repo.clone(),
+                config.branch.clone(),
+            ),
         };
 
         Ok(Self {
@@ -148,10 +155,7 @@ impl GitHubClient {
             }
         }
 
-        info!(
-            "Committed {} to {}/{}",
-            file_path, self.owner, self.repo
-        );
+        info!("Committed {} to {}/{}", file_path, self.owner, self.repo);
 
         Ok(())
     }

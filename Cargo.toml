@@ -1,6 +1,6 @@
 [package]
 name = "qrqcrew-notes-daemon"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Daemon to generate Ham2K PoLo callsign notes from QRQ Crew roster"
 license = "MIT"
@@ -18,6 +18,7 @@ csv = "1.3"
 # Configuration
 config = "0.14"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 toml = "0.8"
 
 # GitHub API

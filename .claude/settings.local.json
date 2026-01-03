@@ -9,7 +9,10 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git -C /home/jsvana/projects/qrqcrew-notes-daemon log --oneline -5)",
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "WebFetch(domain:groups.io)",
+      "Bash(gh release:*)",
+      "Bash(git push:*)"
     ]
   }
 }
