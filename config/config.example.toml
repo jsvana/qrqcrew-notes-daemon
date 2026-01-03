@@ -10,7 +10,7 @@ emoji = "⚓"
 label = "QRQ Crew"
 output_file = "qrqcrew-notes.txt"
 
-# CWops organization
+# CWops organization (with custom GitHub target)
 [[organizations]]
 name = "cwops"
 enabled = true
@@ -21,6 +21,11 @@ skip_rows = 6
 emoji = "🎹"
 label = "CWops"
 output_file = "cwops-notes.txt"
+# Optional: override GitHub target for this org (uses global settings if not specified)
+[organizations.github]
+owner = "jsvana"
+repo = "ditdit.club"
+# branch = "main"  # optional, defaults to global
 
 [github]
 token = "${GITHUB_TOKEN}"  # Use environment variable

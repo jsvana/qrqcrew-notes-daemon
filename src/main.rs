@@ -53,11 +53,11 @@ async fn main() -> Result<()> {
         enabled_orgs.len()
     );
 
-    let github = GitHubClient::new(&config.github)?;
-
     loop {
         for org in &enabled_orgs {
             info!("[{}] Starting sync", org.name);
+            // Create per-org GitHub client with optional overrides
+            let github = GitHubClient::with_overrides(&config.github, org.github.as_ref())?;
             if let Err(e) = sync_org(org, &github, cli.dry_run).await {
                 error!("[{}] Sync failed: {}", org.name, e);
             }

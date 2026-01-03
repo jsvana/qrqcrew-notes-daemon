@@ -1,4 +1,4 @@
-use crate::config::GitHubConfig;
+use crate::config::{GitHubConfig, OrgGitHubConfig};
 use anyhow::{Context, Result};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use octocrab::Octocrab;
@@ -15,16 +15,30 @@ pub struct GitHubClient {
 
 impl GitHubClient {
     pub fn new(config: &GitHubConfig) -> Result<Self> {
+        Self::with_overrides(config, None)
+    }
+
+    /// Create a GitHubClient with optional per-org overrides for owner/repo/branch
+    pub fn with_overrides(config: &GitHubConfig, org_config: Option<&OrgGitHubConfig>) -> Result<Self> {
         let client = Octocrab::builder()
             .personal_token(config.token.clone())
             .build()
             .context("Failed to build GitHub client")?;
 
+        let (owner, repo, branch) = match org_config {
+            Some(org) => (
+                org.owner.clone().unwrap_or_else(|| config.owner.clone()),
+                org.repo.clone().unwrap_or_else(|| config.repo.clone()),
+                org.branch.clone().unwrap_or_else(|| config.branch.clone()),
+            ),
+            None => (config.owner.clone(), config.repo.clone(), config.branch.clone()),
+        };
+
         Ok(Self {
             client,
-            owner: config.owner.clone(),
-            repo: config.repo.clone(),
-            branch: config.branch.clone(),
+            owner,
+            repo,
+            branch,
             author_name: config.commit_author_name.clone(),
             author_email: config.commit_author_email.clone(),
         })

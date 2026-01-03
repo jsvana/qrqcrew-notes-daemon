@@ -15,6 +15,16 @@ pub struct Organization {
     pub emoji: String,
     pub label: String,
     pub output_file: String,
+    /// Optional per-organization GitHub settings (overrides global)
+    pub github: Option<OrgGitHubConfig>,
+}
+
+/// Per-organization GitHub config (all fields optional, falls back to global)
+#[derive(Debug, Deserialize, Clone)]
+pub struct OrgGitHubConfig {
+    pub owner: Option<String>,
+    pub repo: Option<String>,
+    pub branch: Option<String>,
 }
 
 fn default_enabled() -> bool {
@@ -169,5 +179,57 @@ run_once = true
         assert!(config.organizations[0].enabled);
         // skip_rows should default to 0
         assert_eq!(config.organizations[0].skip_rows, 0);
+    }
+
+    #[test]
+    fn test_config_per_org_github() {
+        let config_content = r#"
+[[organizations]]
+name = "default_org"
+roster_url = "https://example.com/default.csv"
+callsign_column = "call"
+number_column = "number"
+emoji = "🔥"
+label = "Default"
+output_file = "default.txt"
+
+[[organizations]]
+name = "custom_org"
+roster_url = "https://example.com/custom.csv"
+callsign_column = "call"
+number_column = "number"
+emoji = "🎯"
+label = "Custom"
+output_file = "custom.txt"
+[organizations.github]
+owner = "custom_owner"
+repo = "custom_repo"
+
+[github]
+token = "test_token"
+owner = "global_owner"
+repo = "global_repo"
+branch = "main"
+commit_author_name = "Test Bot"
+commit_author_email = "test@example.com"
+
+[daemon]
+sync_interval_secs = 3600
+run_once = true
+"#;
+
+        let mut temp_file = Builder::new().suffix(".toml").tempfile().unwrap();
+        temp_file.write_all(config_content.as_bytes()).unwrap();
+
+        let config = Config::load(Some(temp_file.path().to_path_buf())).unwrap();
+
+        // First org should have no custom github config
+        assert!(config.organizations[0].github.is_none());
+
+        // Second org should have custom github config
+        let org_github = config.organizations[1].github.as_ref().unwrap();
+        assert_eq!(org_github.owner, Some("custom_owner".to_string()));
+        assert_eq!(org_github.repo, Some("custom_repo".to_string()));
+        assert!(org_github.branch.is_none()); // Not specified, should be None
     }
 }
