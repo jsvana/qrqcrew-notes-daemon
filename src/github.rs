@@ -18,28 +18,30 @@ impl GitHubClient {
         Self::with_overrides(config, None)
     }
 
-    /// Create a GitHubClient with optional per-org overrides for owner/repo/branch
+    /// Create a GitHubClient with optional per-org overrides for token/owner/repo/branch
     pub fn with_overrides(
         config: &GitHubConfig,
         org_config: Option<&OrgGitHubConfig>,
     ) -> Result<Self> {
-        let client = Octocrab::builder()
-            .personal_token(config.token.clone())
-            .build()
-            .context("Failed to build GitHub client")?;
-
-        let (owner, repo, branch) = match org_config {
+        let (token, owner, repo, branch) = match org_config {
             Some(org) => (
+                org.token.clone().unwrap_or_else(|| config.token.clone()),
                 org.owner.clone().unwrap_or_else(|| config.owner.clone()),
                 org.repo.clone().unwrap_or_else(|| config.repo.clone()),
                 org.branch.clone().unwrap_or_else(|| config.branch.clone()),
             ),
             None => (
+                config.token.clone(),
                 config.owner.clone(),
                 config.repo.clone(),
                 config.branch.clone(),
             ),
         };
+
+        let client = Octocrab::builder()
+            .personal_token(token)
+            .build()
+            .context("Failed to build GitHub client")?;
 
         Ok(Self {
             client,

@@ -23,6 +23,7 @@ label = "CWops"
 output_file = "data/cwops_members.txt"
 # Optional: override GitHub target for this org (uses global settings if not specified)
 [organizations.github]
+token = "${DITDIT_GITHUB_TOKEN}"  # optional, defaults to global token
 owner = "jsvana"
 repo = "ditdit.club"
 # branch = "main"  # optional, defaults to global

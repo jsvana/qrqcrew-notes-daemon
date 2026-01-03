@@ -22,6 +22,7 @@ pub struct Organization {
 /// Per-organization GitHub config (all fields optional, falls back to global)
 #[derive(Debug, Deserialize, Clone)]
 pub struct OrgGitHubConfig {
+    pub token: Option<String>,
     pub owner: Option<String>,
     pub repo: Option<String>,
     pub branch: Option<String>,
@@ -74,11 +75,28 @@ impl Config {
             .try_deserialize()
             .context("Failed to deserialize config")?;
 
-        // Handle ${GITHUB_TOKEN} placeholder in token field
+        // Handle ${VAR} placeholder in token fields
         if config.github.token.starts_with("${") && config.github.token.ends_with("}") {
             let env_var = &config.github.token[2..config.github.token.len() - 1];
             config.github.token = std::env::var(env_var)
                 .with_context(|| format!("Environment variable {} not set", env_var))?;
+        }
+
+        // Handle ${VAR} placeholder in per-org token fields
+        for org in &mut config.organizations {
+            if let Some(ref mut gh) = org.github {
+                if let Some(ref token) = gh.token {
+                    if token.starts_with("${") && token.ends_with("}") {
+                        let env_var = &token[2..token.len() - 1];
+                        gh.token = Some(std::env::var(env_var).with_context(|| {
+                            format!(
+                                "Environment variable {} not set for org {}",
+                                env_var, org.name
+                            )
+                        })?);
+                    }
+                }
+            }
         }
 
         Ok(config)
