@@ -20,7 +20,7 @@ number_column = "Number"
 skip_rows = 6
 emoji = "🎹"
 label = "CWops"
-output_file = "cwops-notes.txt"
+output_file = "data/cwops_members.txt"
 # Optional: override GitHub target for this org (uses global settings if not specified)
 [organizations.github]
 owner = "jsvana"
