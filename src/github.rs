@@ -2,7 +2,74 @@ use crate::config::{GitHubConfig, OrgGitHubConfig};
 use anyhow::{Context, Result};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use octocrab::Octocrab;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
+
+/// A file pending commit in a batch operation
+#[derive(Debug, Clone)]
+pub struct PendingFile {
+    pub path: String,
+    pub content: String,
+    pub org_label: String,
+    pub member_count: usize,
+}
+
+/// Git Data API request/response types
+#[derive(Debug, Serialize)]
+struct CreateBlobRequest {
+    content: String,
+    encoding: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct BlobResponse {
+    sha: String,
+}
+
+#[derive(Debug, Serialize)]
+struct TreeEntry {
+    path: String,
+    mode: String,
+    #[serde(rename = "type")]
+    entry_type: String,
+    sha: String,
+}
+
+#[derive(Debug, Serialize)]
+struct CreateTreeRequest {
+    base_tree: String,
+    tree: Vec<TreeEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TreeResponse {
+    sha: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CommitAuthor {
+    name: String,
+    email: String,
+}
+
+#[derive(Debug, Serialize)]
+struct CreateCommitRequest {
+    message: String,
+    tree: String,
+    parents: Vec<String>,
+    author: CommitAuthor,
+    committer: CommitAuthor,
+}
+
+#[derive(Debug, Deserialize)]
+struct CommitResponse {
+    sha: String,
+}
+
+#[derive(Debug, Serialize)]
+struct UpdateRefRequest {
+    sha: String,
+}
 
 pub struct GitHubClient {
     client: Octocrab,
@@ -53,32 +120,6 @@ impl GitHubClient {
         })
     }
 
-    /// Get current file SHA (needed for updates)
-    pub async fn get_file_sha(&self, file_path: &str) -> Result<Option<String>> {
-        let result = self
-            .client
-            .repos(&self.owner, &self.repo)
-            .get_content()
-            .path(file_path)
-            .r#ref(&self.branch)
-            .send()
-            .await;
-
-        match result {
-            Ok(content) => {
-                if let Some(item) = content.items.first() {
-                    Ok(item.sha.clone().into())
-                } else {
-                    Ok(None)
-                }
-            }
-            Err(octocrab::Error::GitHub { source, .. }) if source.message.contains("Not Found") => {
-                Ok(None)
-            }
-            Err(e) => Err(e.into()),
-        }
-    }
-
     /// Get current file content
     pub async fn get_file_content(&self, file_path: &str) -> Result<Option<String>> {
         let result = self
@@ -118,50 +159,6 @@ impl GitHubClient {
         }
     }
 
-    /// Commit file (create or update)
-    pub async fn commit_file(&self, file_path: &str, content: &str, message: &str) -> Result<()> {
-        let sha = self.get_file_sha(file_path).await?;
-
-        debug!(
-            "Committing to {}/{} branch {} file {}",
-            self.owner, self.repo, self.branch, file_path
-        );
-
-        let repos = self.client.repos(&self.owner, &self.repo);
-        let author = octocrab::models::repos::CommitAuthor {
-            name: self.author_name.clone(),
-            email: self.author_email.clone(),
-            date: None,
-        };
-
-        match sha {
-            Some(sha) => {
-                repos
-                    .update_file(file_path, message, content, &sha)
-                    .branch(&self.branch)
-                    .commiter(author.clone())
-                    .author(author)
-                    .send()
-                    .await
-                    .context("Failed to update file")?;
-            }
-            None => {
-                repos
-                    .create_file(file_path, message, content)
-                    .branch(&self.branch)
-                    .commiter(author.clone())
-                    .author(author)
-                    .send()
-                    .await
-                    .context("Failed to create file")?;
-            }
-        }
-
-        info!("Committed {} to {}/{}", file_path, self.owner, self.repo);
-
-        Ok(())
-    }
-
     /// Check if content has changed (ignoring timestamp line)
     pub async fn content_changed(&self, file_path: &str, new_content: &str) -> Result<bool> {
         match self.get_file_content(file_path).await? {
@@ -178,5 +175,127 @@ impl GitHubClient {
             }
             None => Ok(true),
         }
+    }
+
+    /// Batch commit multiple files in a single commit using Git Data API
+    pub async fn batch_commit(&self, files: &[PendingFile], message: &str) -> Result<()> {
+        if files.is_empty() {
+            return Ok(());
+        }
+
+        let api_base = format!("repos/{}/{}/git", self.owner, self.repo);
+
+        // 1. Get current branch ref to find HEAD commit
+        let ref_response: serde_json::Value = self
+            .client
+            .get(
+                format!("{}/ref/heads/{}", api_base, self.branch),
+                None::<&()>,
+            )
+            .await
+            .context("Failed to get branch ref")?;
+
+        let head_sha = ref_response["object"]["sha"]
+            .as_str()
+            .context("Missing HEAD sha")?
+            .to_string();
+
+        debug!("Current HEAD: {}", head_sha);
+
+        // 2. Get the tree SHA from HEAD commit
+        let commit_response: serde_json::Value = self
+            .client
+            .get(format!("{}/commits/{}", api_base, head_sha), None::<&()>)
+            .await
+            .context("Failed to get HEAD commit")?;
+
+        let base_tree_sha = commit_response["tree"]["sha"]
+            .as_str()
+            .context("Missing tree sha")?
+            .to_string();
+
+        debug!("Base tree: {}", base_tree_sha);
+
+        // 3. Create blobs for each file
+        let mut tree_entries = Vec::new();
+        for file in files {
+            let blob_request = CreateBlobRequest {
+                content: file.content.clone(),
+                encoding: "utf-8".to_string(),
+            };
+
+            let blob_response: BlobResponse = self
+                .client
+                .post(format!("{}/blobs", api_base), Some(&blob_request))
+                .await
+                .context(format!("Failed to create blob for {}", file.path))?;
+
+            debug!("Created blob for {}: {}", file.path, blob_response.sha);
+
+            tree_entries.push(TreeEntry {
+                path: file.path.clone(),
+                mode: "100644".to_string(), // regular file
+                entry_type: "blob".to_string(),
+                sha: blob_response.sha,
+            });
+        }
+
+        // 4. Create new tree with updated files
+        let tree_request = CreateTreeRequest {
+            base_tree: base_tree_sha,
+            tree: tree_entries,
+        };
+
+        let tree_response: TreeResponse = self
+            .client
+            .post(format!("{}/trees", api_base), Some(&tree_request))
+            .await
+            .context("Failed to create tree")?;
+
+        debug!("Created tree: {}", tree_response.sha);
+
+        // 5. Create commit
+        let author = CommitAuthor {
+            name: self.author_name.clone(),
+            email: self.author_email.clone(),
+        };
+
+        let commit_request = CreateCommitRequest {
+            message: message.to_string(),
+            tree: tree_response.sha,
+            parents: vec![head_sha],
+            author: author.clone(),
+            committer: author,
+        };
+
+        let new_commit: CommitResponse = self
+            .client
+            .post(format!("{}/commits", api_base), Some(&commit_request))
+            .await
+            .context("Failed to create commit")?;
+
+        debug!("Created commit: {}", new_commit.sha);
+
+        // 6. Update branch ref to point to new commit
+        let update_ref = UpdateRefRequest {
+            sha: new_commit.sha.clone(),
+        };
+
+        self.client
+            .patch::<serde_json::Value, _, _>(
+                format!("{}/refs/heads/{}", api_base, self.branch),
+                Some(&update_ref),
+            )
+            .await
+            .context("Failed to update branch ref")?;
+
+        info!(
+            "Batch committed {} file(s) to {}/{}",
+            files.len(),
+            self.owner,
+            self.repo
+        );
+
+        Ok(())
     }
 }

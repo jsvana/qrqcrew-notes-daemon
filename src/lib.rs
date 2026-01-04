@@ -6,6 +6,6 @@ pub mod notes_generator;
 
 pub use config::{Config, Organization};
 pub use csv_fetcher::{CsvFetcher, Member};
-pub use github::GitHubClient;
+pub use github::{GitHubClient, PendingFile};
 pub use html_fetcher::HtmlFetcher;
 pub use notes_generator::NotesGenerator;

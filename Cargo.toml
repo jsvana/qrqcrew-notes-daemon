@@ -1,6 +1,6 @@
 [package]
 name = "qrqcrew-notes-daemon"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 description = "Daemon to generate Ham2K PoLo callsign notes from QRQ Crew roster"
 license = "MIT"
