@@ -56,8 +56,7 @@ impl HtmlFetcher {
             }
 
             // Check we have enough columns
-            if cells.len() <= self.callsign_column_index
-                || cells.len() <= self.number_column_index
+            if cells.len() <= self.callsign_column_index || cells.len() <= self.number_column_index
             {
                 debug!("Row {}: Not enough columns ({})", row_num, cells.len());
                 continue;

@@ -12,7 +12,8 @@
       "Bash(cargo test:*)",
       "WebFetch(domain:groups.io)",
       "Bash(gh release:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(cargo fmt:*)"
     ]
   }
 }

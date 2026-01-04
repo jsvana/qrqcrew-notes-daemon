@@ -94,8 +94,12 @@ async fn sync_org(
                 .number_column
                 .clone()
                 .unwrap_or_else(|| "Number".to_string());
-            let fetcher =
-                CsvFetcher::new(org.roster_url.clone(), callsign_col, number_col, org.skip_rows);
+            let fetcher = CsvFetcher::new(
+                org.roster_url.clone(),
+                callsign_col,
+                number_col,
+                org.skip_rows,
+            );
             fetcher.fetch_members().await?
         }
     };
