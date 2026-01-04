@@ -8,8 +8,17 @@ pub struct Organization {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
     pub roster_url: String,
-    pub callsign_column: String,
-    pub number_column: String,
+    /// Source type: "csv" (default) or "html_table"
+    #[serde(default = "default_source_type")]
+    pub source_type: String,
+    /// Column name for callsigns (used for CSV sources)
+    pub callsign_column: Option<String>,
+    /// Column name for member ID (used for CSV sources)
+    pub number_column: Option<String>,
+    /// Column index for callsigns (used for HTML table sources)
+    pub callsign_column_index: Option<usize>,
+    /// Column index for member ID (used for HTML table sources)
+    pub number_column_index: Option<usize>,
     #[serde(default)]
     pub skip_rows: usize,
     pub emoji: String,
@@ -17,6 +26,10 @@ pub struct Organization {
     pub output_file: String,
     /// Optional per-organization GitHub settings (overrides global)
     pub github: Option<OrgGitHubConfig>,
+}
+
+fn default_source_type() -> String {
+    "csv".to_string()
 }
 
 /// Per-organization GitHub config (all fields optional, falls back to global)
@@ -155,7 +168,10 @@ run_once = true
         assert_eq!(config.organizations.len(), 2);
         assert_eq!(config.organizations[0].name, "qrqcrew");
         assert!(config.organizations[0].enabled);
-        assert_eq!(config.organizations[0].callsign_column, "call");
+        assert_eq!(
+            config.organizations[0].callsign_column,
+            Some("call".to_string())
+        );
         assert_eq!(config.organizations[1].name, "cwops");
         assert!(!config.organizations[1].enabled);
         assert_eq!(config.organizations[1].skip_rows, 6);

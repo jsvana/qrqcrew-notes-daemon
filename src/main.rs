@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use qrqcrew_notes_daemon::{Config, CsvFetcher, GitHubClient, NotesGenerator};
+use qrqcrew_notes_daemon::{Config, CsvFetcher, GitHubClient, HtmlFetcher, NotesGenerator};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -76,14 +76,29 @@ async fn sync_org(
     github: &GitHubClient,
     dry_run: bool,
 ) -> Result<()> {
-    // 1. Fetch roster
-    let fetcher = CsvFetcher::new(
-        org.roster_url.clone(),
-        org.callsign_column.clone(),
-        org.number_column.clone(),
-        org.skip_rows,
-    );
-    let members = fetcher.fetch_members().await?;
+    // 1. Fetch roster based on source type
+    let members = match org.source_type.as_str() {
+        "html_table" => {
+            let callsign_idx = org.callsign_column_index.unwrap_or(1);
+            let number_idx = org.number_column_index.unwrap_or(0);
+            let fetcher = HtmlFetcher::new(org.roster_url.clone(), callsign_idx, number_idx);
+            fetcher.fetch_members().await?
+        }
+        _ => {
+            // Default to CSV
+            let callsign_col = org
+                .callsign_column
+                .clone()
+                .unwrap_or_else(|| "Callsign".to_string());
+            let number_col = org
+                .number_column
+                .clone()
+                .unwrap_or_else(|| "Number".to_string());
+            let fetcher =
+                CsvFetcher::new(org.roster_url.clone(), callsign_col, number_col, org.skip_rows);
+            fetcher.fetch_members().await?
+        }
+    };
     info!(
         "[{}] Fetched {} members from roster",
         org.name,

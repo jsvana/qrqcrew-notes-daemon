@@ -38,7 +38,7 @@ impl NotesGenerator {
         for member in sorted {
             output.push_str(&format!(
                 "{} {} {} #{}\n",
-                member.callsign, self.emoji, self.label, member.qc_number
+                member.callsign, self.emoji, self.label, member.member_id
             ));
         }
 
@@ -61,15 +61,15 @@ mod tests {
         let members = vec![
             Member {
                 callsign: "W6JSV".to_string(),
-                qc_number: 10,
+                member_id: "10".to_string(),
             },
             Member {
                 callsign: "K4MW".to_string(),
-                qc_number: 1,
+                member_id: "1".to_string(),
             },
             Member {
                 callsign: "WN7JT".to_string(),
-                qc_number: 2,
+                member_id: "2".to_string(),
             },
         ];
 
@@ -102,7 +102,7 @@ mod tests {
 
         let members = vec![Member {
             callsign: "W6JSV".to_string(),
-            qc_number: 1234,
+            member_id: "1234".to_string(),
         }];
 
         let output = generator.generate(&members);

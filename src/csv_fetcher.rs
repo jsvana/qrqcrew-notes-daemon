@@ -7,7 +7,7 @@ use tracing::{debug, warn};
 #[derive(Debug, Clone)]
 pub struct Member {
     pub callsign: String,
-    pub qc_number: u32,
+    pub member_id: String,
 }
 
 pub struct CsvFetcher {
@@ -111,21 +111,22 @@ impl CsvFetcher {
                             continue;
                         }
 
-                        // Parse QC number
-                        let qc_number = match record.get(number_col) {
-                            Some(num_str) => match num_str.trim().parse::<u32>() {
-                                Ok(n) => n,
-                                Err(_) => {
+                        // Parse member ID
+                        let member_id = match record.get(number_col) {
+                            Some(id_str) => {
+                                let id = id_str.trim();
+                                if id.is_empty() {
                                     debug!(
-                                        "Row {}: Invalid QC # '{}' for callsign {}",
-                                        actual_row, num_str, callsign
+                                        "Row {}: Empty member ID for callsign {}",
+                                        actual_row, callsign
                                     );
                                     continue;
                                 }
-                            },
+                                id.to_string()
+                            }
                             None => {
                                 debug!(
-                                    "Row {}: Missing QC # for callsign {}",
+                                    "Row {}: Missing member ID for callsign {}",
                                     actual_row, callsign
                                 );
                                 continue;
@@ -135,7 +136,7 @@ impl CsvFetcher {
                         seen.insert(callsign.clone());
                         members.push(Member {
                             callsign,
-                            qc_number,
+                            member_id,
                         });
                     }
                 }
@@ -205,7 +206,7 @@ mod tests {
         CsvFetcher::new(
             "http://example.com".to_string(),
             "Call".to_string(),
-            "QC #".to_string(),
+            "Number".to_string(),
             0,
         )
     }

@@ -36,6 +36,9 @@ thiserror = "2"
 # Regex for callsign validation
 regex = "1"
 
+# HTML scraping (for SKCC)
+scraper = "0.22"
+
 # CLI
 clap = { version = "4", features = ["derive"] }
 

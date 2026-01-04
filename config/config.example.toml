@@ -28,6 +28,22 @@ owner = "jsvana"
 repo = "ditdit.club"
 # branch = "main"  # optional, defaults to global
 
+# SKCC organization (HTML table source)
+[[organizations]]
+name = "skcc"
+enabled = true
+source_type = "html_table"
+roster_url = "https://skccgroup.com/membership_data/membership_roster.php"
+callsign_column_index = 1  # "Call" column (0-indexed)
+number_column_index = 0    # "SKCC #" column (0-indexed)
+emoji = "🔑"
+label = "SKCC"
+output_file = "skcc_members.txt"
+[organizations.github]
+token = "${DITDIT_GITHUB_TOKEN}"
+owner = "jsvana"
+repo = "ditdit.club"
+
 [github]
 token = "${GITHUB_TOKEN}"  # Use environment variable
 owner = "jsvana"
