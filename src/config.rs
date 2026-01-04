@@ -97,18 +97,18 @@ impl Config {
 
         // Handle ${VAR} placeholder in per-org token fields
         for org in &mut config.organizations {
-            if let Some(ref mut gh) = org.github {
-                if let Some(ref token) = gh.token {
-                    if token.starts_with("${") && token.ends_with("}") {
-                        let env_var = &token[2..token.len() - 1];
-                        gh.token = Some(std::env::var(env_var).with_context(|| {
-                            format!(
-                                "Environment variable {} not set for org {}",
-                                env_var, org.name
-                            )
-                        })?);
-                    }
-                }
+            if let Some(ref mut gh) = org.github
+                && let Some(ref token) = gh.token
+                && token.starts_with("${")
+                && token.ends_with("}")
+            {
+                let env_var = &token[2..token.len() - 1];
+                gh.token = Some(std::env::var(env_var).with_context(|| {
+                    format!(
+                        "Environment variable {} not set for org {}",
+                        env_var, org.name
+                    )
+                })?);
             }
         }
 

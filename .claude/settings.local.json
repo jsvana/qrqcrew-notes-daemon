@@ -13,7 +13,9 @@
       "WebFetch(domain:groups.io)",
       "Bash(gh release:*)",
       "Bash(git push:*)",
-      "Bash(cargo fmt:*)"
+      "Bash(cargo fmt:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)"
     ]
   }
 }
