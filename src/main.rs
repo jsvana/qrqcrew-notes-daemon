@@ -53,12 +53,18 @@ async fn main() -> Result<()> {
         enabled_orgs.len()
     );
 
-    // Create GitHub client (shared for batch commit)
-    let github = GitHubClient::new(&config.github)?;
-
     loop {
         // Run connectivity diagnostics before each sync cycle
         run_connectivity_check().await;
+
+        // Create GitHub client fresh each cycle to avoid stale connections
+        let github = match GitHubClient::new(&config.github) {
+            Ok(client) => Some(client),
+            Err(e) => {
+                error!("Failed to create GitHub client: {}", e);
+                None
+            }
+        };
 
         let mut pending_files = Vec::new();
 
@@ -82,10 +88,13 @@ async fn main() -> Result<()> {
         }
 
         // Batch commit all pending files
-        if !pending_files.is_empty() && !cli.dry_run {
+        if !pending_files.is_empty()
+            && !cli.dry_run
+            && let Some(ref github) = github
+        {
             let message = build_commit_message(&pending_files);
             if let Err(e) = github.batch_commit(&pending_files, &message).await {
-                error!("Batch commit failed: {}", e);
+                error!("Batch commit failed: {:?}", e);
             }
         }
 

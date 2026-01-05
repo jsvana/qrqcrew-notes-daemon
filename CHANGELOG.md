@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.1] - 2026-01-05
+
+### Fixed
+- Create GitHub client fresh each sync cycle to avoid stale connections after sleep
+
 ## [0.6.0] - 2026-01-05
 
 ### Added
