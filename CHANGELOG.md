@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.2] - 2026-01-05
+
+### Added
+- Diagnostic logging for GitHub API calls to debug URI format errors
+
 ## [0.6.1] - 2026-01-05
 
 ### Fixed

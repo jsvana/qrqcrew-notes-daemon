@@ -110,6 +110,11 @@ impl GitHubClient {
             .build()
             .context("Failed to build GitHub client")?;
 
+        info!(
+            "Created GitHub client for {}/{} branch {}",
+            owner, repo, branch
+        );
+
         Ok(Self {
             client,
             owner,
@@ -183,15 +188,22 @@ impl GitHubClient {
             return Ok(());
         }
 
+        info!(
+            "Batch commit to {}/{} branch {} ({} files)",
+            self.owner,
+            self.repo,
+            self.branch,
+            files.len()
+        );
+
         let api_base = format!("repos/{}/{}/git", self.owner, self.repo);
+        let ref_path = format!("{}/ref/heads/{}", api_base, self.branch);
+        info!("Fetching ref: {}", ref_path);
 
         // 1. Get current branch ref to find HEAD commit
         let ref_response: serde_json::Value = self
             .client
-            .get(
-                format!("{}/ref/heads/{}", api_base, self.branch),
-                None::<&()>,
-            )
+            .get(&ref_path, None::<&()>)
             .await
             .context("Failed to get branch ref")?;
 
