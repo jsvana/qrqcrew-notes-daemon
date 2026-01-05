@@ -1,8 +1,8 @@
-use crate::config::{GitHubConfig, OrgGitHubConfig};
+use crate::config::GitHubConfig;
 use anyhow::{Context, Result};
-use base64::{Engine, engine::general_purpose::STANDARD};
-use octocrab::Octocrab;
+use reqwest::header::{ACCEPT, AUTHORIZATION, USER_AGENT};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tracing::{debug, info};
 
 /// A file pending commit in a batch operation
@@ -72,7 +72,8 @@ struct UpdateRefRequest {
 }
 
 pub struct GitHubClient {
-    client: Octocrab,
+    client: reqwest::Client,
+    token: String,
     owner: String,
     repo: String,
     branch: String,
@@ -82,113 +83,116 @@ pub struct GitHubClient {
 
 impl GitHubClient {
     pub fn new(config: &GitHubConfig) -> Result<Self> {
-        Self::with_overrides(config, None)
-    }
-
-    /// Create a GitHubClient with optional per-org overrides for token/owner/repo/branch
-    pub fn with_overrides(
-        config: &GitHubConfig,
-        org_config: Option<&OrgGitHubConfig>,
-    ) -> Result<Self> {
-        let (token, owner, repo, branch) = match org_config {
-            Some(org) => (
-                org.token.clone().unwrap_or_else(|| config.token.clone()),
-                org.owner.clone().unwrap_or_else(|| config.owner.clone()),
-                org.repo.clone().unwrap_or_else(|| config.repo.clone()),
-                org.branch.clone().unwrap_or_else(|| config.branch.clone()),
-            ),
-            None => (
-                config.token.clone(),
-                config.owner.clone(),
-                config.repo.clone(),
-                config.branch.clone(),
-            ),
-        };
-
         info!(
             "Building GitHub client: owner={}, repo={}, branch={}, token_len={}",
-            owner,
-            repo,
-            branch,
-            token.len()
+            config.owner,
+            config.repo,
+            config.branch,
+            config.token.len()
         );
 
-        if token.is_empty() {
+        if config.token.is_empty() {
             anyhow::bail!("GitHub token is empty");
         }
 
-        let client = Octocrab::builder()
-            .personal_token(token)
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
             .build()
-            .context("Failed to build GitHub client")?;
+            .context("Failed to build HTTP client")?;
 
         info!("GitHub client built successfully");
 
         Ok(Self {
             client,
-            owner,
-            repo,
-            branch,
+            token: config.token.clone(),
+            owner: config.owner.clone(),
+            repo: config.repo.clone(),
+            branch: config.branch.clone(),
             author_name: config.commit_author_name.clone(),
             author_email: config.commit_author_email.clone(),
         })
     }
 
-    /// Get current file content
-    pub async fn get_file_content(&self, file_path: &str) -> Result<Option<String>> {
-        let result = self
-            .client
-            .repos(&self.owner, &self.repo)
-            .get_content()
-            .path(file_path)
-            .r#ref(&self.branch)
-            .send()
-            .await;
-
-        match result {
-            Ok(content) => {
-                if let Some(item) = content.items.first() {
-                    if let Some(encoded_content) = &item.content {
-                        let clean_content: String = encoded_content
-                            .chars()
-                            .filter(|c| !c.is_whitespace())
-                            .collect();
-                        let decoded = STANDARD
-                            .decode(&clean_content)
-                            .context("Failed to decode base64 content")?;
-                        let text = String::from_utf8(decoded)
-                            .context("File content is not valid UTF-8")?;
-                        Ok(Some(text))
-                    } else {
-                        Ok(None)
-                    }
-                } else {
-                    Ok(None)
-                }
-            }
-            Err(octocrab::Error::GitHub { source, .. }) if source.message.contains("Not Found") => {
-                Ok(None)
-            }
-            Err(e) => Err(e.into()),
-        }
+    fn api_url(&self, path: &str) -> String {
+        format!("https://api.github.com/{}", path)
     }
 
-    /// Check if content has changed (ignoring timestamp line)
-    pub async fn content_changed(&self, file_path: &str, new_content: &str) -> Result<bool> {
-        match self.get_file_content(file_path).await? {
-            Some(existing) => {
-                let existing_lines: Vec<&str> = existing
-                    .lines()
-                    .filter(|l| !l.starts_with("# Generated:"))
-                    .collect();
-                let new_lines: Vec<&str> = new_content
-                    .lines()
-                    .filter(|l| !l.starts_with("# Generated:"))
-                    .collect();
-                Ok(existing_lines != new_lines)
-            }
-            None => Ok(true),
+    async fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T> {
+        let url = self.api_url(path);
+        debug!("GET {}", url);
+
+        let response = self
+            .client
+            .get(&url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .header(ACCEPT, "application/vnd.github+json")
+            .header(USER_AGENT, "qrqcrew-notes-daemon")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send()
+            .await
+            .context("Failed to send request")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("GitHub API error {}: {}", status, body);
         }
+
+        response.json().await.context("Failed to parse response")
+    }
+
+    async fn post<T: for<'de> Deserialize<'de>, B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T> {
+        let url = self.api_url(path);
+        debug!("POST {}", url);
+
+        let response = self
+            .client
+            .post(&url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .header(ACCEPT, "application/vnd.github+json")
+            .header(USER_AGENT, "qrqcrew-notes-daemon")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .json(body)
+            .send()
+            .await
+            .context("Failed to send request")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("GitHub API error {}: {}", status, body);
+        }
+
+        response.json().await.context("Failed to parse response")
+    }
+
+    async fn patch<B: Serialize>(&self, path: &str, body: &B) -> Result<()> {
+        let url = self.api_url(path);
+        debug!("PATCH {}", url);
+
+        let response = self
+            .client
+            .patch(&url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .header(ACCEPT, "application/vnd.github+json")
+            .header(USER_AGENT, "qrqcrew-notes-daemon")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .json(body)
+            .send()
+            .await
+            .context("Failed to send request")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("GitHub API error {}: {}", status, body);
+        }
+
+        Ok(())
     }
 
     /// Batch commit multiple files in a single commit using Git Data API
@@ -206,15 +210,12 @@ impl GitHubClient {
         );
 
         let api_base = format!("repos/{}/{}/git", self.owner, self.repo);
+
+        // 1. Get current branch ref to find HEAD commit
         let ref_path = format!("{}/ref/heads/{}", api_base, self.branch);
         info!("Fetching ref: {}", ref_path);
 
-        // 1. Get current branch ref to find HEAD commit
-        let ref_response: serde_json::Value = self
-            .client
-            .get(&ref_path, None::<&()>)
-            .await
-            .context("Failed to get branch ref")?;
+        let ref_response: serde_json::Value = self.get(&ref_path).await?;
 
         let head_sha = ref_response["object"]["sha"]
             .as_str()
@@ -225,10 +226,8 @@ impl GitHubClient {
 
         // 2. Get the tree SHA from HEAD commit
         let commit_response: serde_json::Value = self
-            .client
-            .get(format!("{}/commits/{}", api_base, head_sha), None::<&()>)
-            .await
-            .context("Failed to get HEAD commit")?;
+            .get(&format!("{}/commits/{}", api_base, head_sha))
+            .await?;
 
         let base_tree_sha = commit_response["tree"]["sha"]
             .as_str()
@@ -246,8 +245,7 @@ impl GitHubClient {
             };
 
             let blob_response: BlobResponse = self
-                .client
-                .post(format!("{}/blobs", api_base), Some(&blob_request))
+                .post(&format!("{}/blobs", api_base), &blob_request)
                 .await
                 .context(format!("Failed to create blob for {}", file.path))?;
 
@@ -268,8 +266,7 @@ impl GitHubClient {
         };
 
         let tree_response: TreeResponse = self
-            .client
-            .post(format!("{}/trees", api_base), Some(&tree_request))
+            .post(&format!("{}/trees", api_base), &tree_request)
             .await
             .context("Failed to create tree")?;
 
@@ -290,8 +287,7 @@ impl GitHubClient {
         };
 
         let new_commit: CommitResponse = self
-            .client
-            .post(format!("{}/commits", api_base), Some(&commit_request))
+            .post(&format!("{}/commits", api_base), &commit_request)
             .await
             .context("Failed to create commit")?;
 
@@ -302,13 +298,12 @@ impl GitHubClient {
             sha: new_commit.sha.clone(),
         };
 
-        self.client
-            .patch::<serde_json::Value, _, _>(
-                format!("{}/refs/heads/{}", api_base, self.branch),
-                Some(&update_ref),
-            )
-            .await
-            .context("Failed to update branch ref")?;
+        self.patch(
+            &format!("{}/refs/heads/{}", api_base, self.branch),
+            &update_ref,
+        )
+        .await
+        .context("Failed to update branch ref")?;
 
         info!(
             "Batch committed {} file(s) to {}/{}",

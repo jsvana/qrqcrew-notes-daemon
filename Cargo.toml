@@ -1,6 +1,6 @@
 [package]
 name = "qrqcrew-notes-daemon"
-version = "0.6.3"
+version = "0.7.0"
 edition = "2024"
 description = "Daemon to generate Ham2K PoLo callsign notes from QRQ Crew roster"
 license = "MIT"
@@ -21,8 +21,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 
-# GitHub API
-octocrab = "0.41"
+# GitHub API (using reqwest directly)
 base64 = "0.22"
 
 # Logging

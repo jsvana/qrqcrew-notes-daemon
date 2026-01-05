@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0] - 2026-01-05
+
+### Changed
+- Replace octocrab with direct reqwest calls for GitHub API (fixes URI format errors)
+
+### Added
+- Diagnostic logging for GitHub API calls
+
 ## [0.6.3] - 2026-01-05
 
 ### Added
