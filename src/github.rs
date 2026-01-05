@@ -105,15 +105,24 @@ impl GitHubClient {
             ),
         };
 
+        info!(
+            "Building GitHub client: owner={}, repo={}, branch={}, token_len={}",
+            owner,
+            repo,
+            branch,
+            token.len()
+        );
+
+        if token.is_empty() {
+            anyhow::bail!("GitHub token is empty");
+        }
+
         let client = Octocrab::builder()
             .personal_token(token)
             .build()
             .context("Failed to build GitHub client")?;
 
-        info!(
-            "Created GitHub client for {}/{} branch {}",
-            owner, repo, branch
-        );
+        info!("GitHub client built successfully");
 
         Ok(Self {
             client,

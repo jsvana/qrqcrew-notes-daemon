@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.3] - 2026-01-05
+
+### Added
+- Log token length and validate non-empty before building client
+
 ## [0.6.2] - 2026-01-05
 
 ### Added
