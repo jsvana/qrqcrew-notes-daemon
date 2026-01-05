@@ -3,10 +3,12 @@ use clap::Parser;
 use qrqcrew_notes_daemon::{
     Config, CsvFetcher, GitHubClient, HtmlFetcher, NotesGenerator, PendingFile,
 };
+use std::error::Error;
 use std::path::PathBuf;
 use std::time::Duration;
+use tokio::net::TcpStream;
 use tokio::time::sleep;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Parser)]
 #[command(name = "qrqcrew-notes-daemon")]
@@ -55,6 +57,9 @@ async fn main() -> Result<()> {
     let github = GitHubClient::new(&config.github)?;
 
     loop {
+        // Run connectivity diagnostics before each sync cycle
+        run_connectivity_check().await;
+
         let mut pending_files = Vec::new();
 
         for org in &enabled_orgs {
@@ -171,4 +176,34 @@ async fn prepare_org_update(
         org_label: org.label.clone(),
         member_count: members.len(),
     }))
+}
+
+/// Run connectivity diagnostics to help debug network issues
+async fn run_connectivity_check() {
+    // Test targets: one from each service we use
+    let targets = [
+        ("Google (DNS)", "google.com:443"),
+        ("Google Sheets", "docs.google.com:443"),
+        ("GitHub API", "api.github.com:443"),
+    ];
+
+    info!("Running connectivity check...");
+
+    for (name, addr) in targets {
+        match tokio::time::timeout(Duration::from_secs(10), TcpStream::connect(addr)).await {
+            Ok(Ok(_stream)) => {
+                debug!("[connectivity] {} ({}) - OK", name, addr);
+            }
+            Ok(Err(e)) => {
+                let mut error_msg = format!("{}", e);
+                if let Some(source) = e.source() {
+                    error_msg.push_str(&format!(" -> {}", source));
+                }
+                warn!("[connectivity] {} ({}) - FAILED: {}", name, addr, error_msg);
+            }
+            Err(_) => {
+                warn!("[connectivity] {} ({}) - TIMEOUT after 10s", name, addr);
+            }
+        }
+    }
 }

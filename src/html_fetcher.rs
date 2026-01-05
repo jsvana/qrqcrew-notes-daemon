@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use regex::Regex;
 use scraper::{Html, Selector};
 use std::collections::HashSet;
+use std::error::Error;
 use std::time::Duration;
 use tracing::{debug, warn};
 
@@ -139,7 +140,18 @@ impl HtmlFetcher {
                     }
                 }
                 Err(e) => {
-                    last_error = Some(anyhow::anyhow!("Request failed: {}", e));
+                    // Log the full error chain for debugging network issues
+                    let mut error_chain = format!("Request failed: {}", e);
+                    if let Some(source) = e.source() {
+                        error_chain.push_str(&format!(" -> {}", source));
+                    }
+                    if e.is_connect() {
+                        error_chain.push_str(" [connection error]");
+                    }
+                    if e.is_timeout() {
+                        error_chain.push_str(" [timeout]");
+                    }
+                    last_error = Some(anyhow::anyhow!("{}", error_chain));
                 }
             }
 
