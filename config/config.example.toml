@@ -62,3 +62,7 @@ run_once = false
 username = "${QRZ_USERNAME}"
 password = "${QRZ_PASSWORD}"
 enabled = true
+# Path to persistent nickname cache file (default: nickname_cache.json)
+cache_path = "nickname_cache.json"
+# Max concurrent QRZ lookups (default: 10) - higher = faster but may hit rate limits
+max_concurrent_lookups = 10

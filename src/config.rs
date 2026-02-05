@@ -59,6 +59,10 @@ pub struct QrzConfig {
     pub password: String,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// Path to nickname cache file (default: nickname_cache.json)
+    pub cache_path: Option<String>,
+    /// Maximum concurrent QRZ lookups (default: 10)
+    pub max_concurrent_lookups: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
