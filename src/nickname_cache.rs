@@ -159,11 +159,10 @@ impl NicknameCache {
 
 impl Drop for NicknameCache {
     fn drop(&mut self) {
-        if self.dirty {
-            if let Err(e) = self.save() {
+        if self.dirty
+            && let Err(e) = self.save() {
                 warn!("Failed to save cache on drop: {}", e);
             }
-        }
     }
 }
 
