@@ -96,7 +96,11 @@ impl QrzClient {
         self.lookup_nickname_inner(callsign, 0).await
     }
 
-    async fn lookup_nickname_inner(&self, callsign: &str, retry_count: u32) -> Result<Option<String>> {
+    async fn lookup_nickname_inner(
+        &self,
+        callsign: &str,
+        retry_count: u32,
+    ) -> Result<Option<String>> {
         if retry_count > 1 {
             anyhow::bail!("QRZ lookup failed after retries");
         }
@@ -178,7 +182,12 @@ mod tests {
 
         let result = QrzClient::extract_session_key(xml);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid username/password"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid username/password")
+        );
     }
 
     #[test]

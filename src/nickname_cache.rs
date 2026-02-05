@@ -68,8 +68,11 @@ impl NicknameCache {
                 let pruned = before_count - data.entries.len();
 
                 if pruned > 0 {
-                    info!("Loaded nickname cache with {} entries ({} expired, pruned)",
-                          data.entries.len(), pruned);
+                    info!(
+                        "Loaded nickname cache with {} entries ({} expired, pruned)",
+                        data.entries.len(),
+                        pruned
+                    );
                 } else {
                     info!("Loaded nickname cache with {} entries", data.entries.len());
                 }
@@ -104,7 +107,9 @@ impl NicknameCache {
     /// Insert a nickname into the cache
     pub fn insert(&mut self, callsign: &str, nickname: Option<String>) {
         let callsign = callsign.to_uppercase();
-        self.data.entries.insert(callsign, CacheEntry::new(nickname));
+        self.data
+            .entries
+            .insert(callsign, CacheEntry::new(nickname));
         self.dirty = true;
     }
 
@@ -124,12 +129,13 @@ impl NicknameCache {
 
         // Ensure parent directory exists
         if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create cache directory: {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create cache directory: {}", parent.display())
+            })?;
         }
 
-        let content = serde_json::to_string_pretty(&self.data)
-            .context("Failed to serialize cache")?;
+        let content =
+            serde_json::to_string_pretty(&self.data).context("Failed to serialize cache")?;
 
         std::fs::write(&self.path, content)
             .with_context(|| format!("Failed to write cache file: {}", self.path.display()))?;
@@ -208,11 +214,7 @@ mod tests {
 
         cache.insert("W6JSV", Some("Jay".to_string()));
 
-        let callsigns = vec![
-            "W6JSV".to_string(),
-            "K4MW".to_string(),
-            "WN7JT".to_string(),
-        ];
+        let callsigns = vec!["W6JSV".to_string(), "K4MW".to_string(), "WN7JT".to_string()];
 
         let uncached = cache.filter_uncached(&callsigns);
         assert_eq!(uncached.len(), 2);

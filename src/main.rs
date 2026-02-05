@@ -119,8 +119,11 @@ async fn main() -> Result<()> {
                 Ok(Some(pending)) => {
                     info!(
                         "[{}] Prepared update for {} ({} members) -> {}/{}",
-                        org.name, pending.path, pending.member_count,
-                        pending.target.owner, pending.target.repo
+                        org.name,
+                        pending.path,
+                        pending.member_count,
+                        pending.target.owner,
+                        pending.target.repo
                     );
                     pending_files.push(pending);
                 }
@@ -244,7 +247,14 @@ async fn prepare_org_update(
 
     // 2. Enrich with nicknames from QRZ if available
     if let Some(qrz) = qrz_client {
-        enrich_with_nicknames(&mut members, qrz, nickname_cache, &org.name, max_concurrent_lookups).await;
+        enrich_with_nicknames(
+            &mut members,
+            qrz,
+            nickname_cache,
+            &org.name,
+            max_concurrent_lookups,
+        )
+        .await;
     }
 
     // 3. Generate notes file

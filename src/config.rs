@@ -129,13 +129,15 @@ impl Config {
         if let Some(ref mut qrz) = config.qrz {
             if qrz.username.starts_with("${") && qrz.username.ends_with("}") {
                 let env_var = &qrz.username[2..qrz.username.len() - 1];
-                qrz.username = std::env::var(env_var)
-                    .with_context(|| format!("Environment variable {} not set for QRZ username", env_var))?;
+                qrz.username = std::env::var(env_var).with_context(|| {
+                    format!("Environment variable {} not set for QRZ username", env_var)
+                })?;
             }
             if qrz.password.starts_with("${") && qrz.password.ends_with("}") {
                 let env_var = &qrz.password[2..qrz.password.len() - 1];
-                qrz.password = std::env::var(env_var)
-                    .with_context(|| format!("Environment variable {} not set for QRZ password", env_var))?;
+                qrz.password = std::env::var(env_var).with_context(|| {
+                    format!("Environment variable {} not set for QRZ password", env_var)
+                })?;
             }
         }
 
