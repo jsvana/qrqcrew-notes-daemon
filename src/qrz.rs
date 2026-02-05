@@ -50,17 +50,19 @@ impl QrzClient {
 
     fn extract_session_key(xml: &str) -> Result<String> {
         if let Some(start) = xml.find("<Key>")
-            && let Some(end) = xml.find("</Key>") {
-                let key = &xml[start + 5..end];
-                return Ok(key.to_string());
-            }
+            && let Some(end) = xml.find("</Key>")
+        {
+            let key = &xml[start + 5..end];
+            return Ok(key.to_string());
+        }
 
         if xml.contains("<Error>")
             && let Some(start) = xml.find("<Error>")
-                && let Some(end) = xml.find("</Error>") {
-                    let error = &xml[start + 7..end];
-                    anyhow::bail!("QRZ error: {}", error);
-                }
+            && let Some(end) = xml.find("</Error>")
+        {
+            let error = &xml[start + 7..end];
+            anyhow::bail!("QRZ error: {}", error);
+        }
 
         anyhow::bail!("Could not parse QRZ session key")
     }
@@ -139,12 +141,13 @@ impl QrzClient {
 
     fn extract_fname(xml: &str) -> Option<String> {
         if let Some(start) = xml.find("<fname>")
-            && let Some(end) = xml[start..].find("</fname>") {
-                let fname = &xml[start + 7..start + end];
-                if !fname.is_empty() {
-                    return Some(fname.to_string());
-                }
+            && let Some(end) = xml[start..].find("</fname>")
+        {
+            let fname = &xml[start + 7..start + end];
+            if !fname.is_empty() {
+                return Some(fname.to_string());
             }
+        }
         None
     }
 }
