@@ -8,7 +8,7 @@ pub mod qrz;
 
 pub use config::{Config, Organization, QrzConfig};
 pub use csv_fetcher::{CsvFetcher, Member};
-pub use github::{GitHubClient, PendingFile};
+pub use github::{GitHubClient, GitHubTarget, PendingFile};
 pub use html_fetcher::HtmlFetcher;
 pub use nickname_cache::NicknameCache;
 pub use notes_generator::NotesGenerator;

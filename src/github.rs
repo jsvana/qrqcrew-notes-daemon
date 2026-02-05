@@ -1,9 +1,39 @@
-use crate::config::GitHubConfig;
+use crate::config::{GitHubConfig, OrgGitHubConfig};
 use anyhow::{Context, Result};
 use reqwest::header::{ACCEPT, AUTHORIZATION, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tracing::{debug, info};
+
+/// Identifies a unique GitHub repository target
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GitHubTarget {
+    pub owner: String,
+    pub repo: String,
+    pub branch: String,
+    pub token: String,
+}
+
+impl GitHubTarget {
+    /// Resolve the effective GitHub target for an organization.
+    /// Uses per-org overrides where specified, falls back to global config.
+    pub fn resolve(org_github: Option<&OrgGitHubConfig>, global: &GitHubConfig) -> Self {
+        match org_github {
+            Some(org) => Self {
+                owner: org.owner.clone().unwrap_or_else(|| global.owner.clone()),
+                repo: org.repo.clone().unwrap_or_else(|| global.repo.clone()),
+                branch: org.branch.clone().unwrap_or_else(|| global.branch.clone()),
+                token: org.token.clone().unwrap_or_else(|| global.token.clone()),
+            },
+            None => Self {
+                owner: global.owner.clone(),
+                repo: global.repo.clone(),
+                branch: global.branch.clone(),
+                token: global.token.clone(),
+            },
+        }
+    }
+}
 
 /// A file pending commit in a batch operation
 #[derive(Debug, Clone)]
@@ -12,6 +42,7 @@ pub struct PendingFile {
     pub content: String,
     pub org_label: String,
     pub member_count: usize,
+    pub target: GitHubTarget,
 }
 
 /// Git Data API request/response types
@@ -83,15 +114,26 @@ pub struct GitHubClient {
 
 impl GitHubClient {
     pub fn new(config: &GitHubConfig) -> Result<Self> {
+        let target = GitHubTarget {
+            owner: config.owner.clone(),
+            repo: config.repo.clone(),
+            branch: config.branch.clone(),
+            token: config.token.clone(),
+        };
+        Self::from_target(&target, config)
+    }
+
+    /// Create a client from a resolved target and global config (for author info)
+    pub fn from_target(target: &GitHubTarget, global_config: &GitHubConfig) -> Result<Self> {
         info!(
             "Building GitHub client: owner={}, repo={}, branch={}, token_len={}",
-            config.owner,
-            config.repo,
-            config.branch,
-            config.token.len()
+            target.owner,
+            target.repo,
+            target.branch,
+            target.token.len()
         );
 
-        if config.token.is_empty() {
+        if target.token.is_empty() {
             anyhow::bail!("GitHub token is empty");
         }
 
@@ -104,12 +146,12 @@ impl GitHubClient {
 
         Ok(Self {
             client,
-            token: config.token.clone(),
-            owner: config.owner.clone(),
-            repo: config.repo.clone(),
-            branch: config.branch.clone(),
-            author_name: config.commit_author_name.clone(),
-            author_email: config.commit_author_email.clone(),
+            token: target.token.clone(),
+            owner: target.owner.clone(),
+            repo: target.repo.clone(),
+            branch: target.branch.clone(),
+            author_name: global_config.commit_author_name.clone(),
+            author_email: global_config.commit_author_email.clone(),
         })
     }
 

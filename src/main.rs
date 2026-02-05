@@ -2,9 +2,10 @@ use anyhow::Result;
 use clap::Parser;
 use futures::stream::{self, StreamExt};
 use qrqcrew_notes_daemon::{
-    Config, CsvFetcher, GitHubClient, HtmlFetcher, Member, NicknameCache, NotesGenerator,
-    PendingFile, QrzClient,
+    Config, CsvFetcher, GitHubClient, GitHubTarget, HtmlFetcher, Member, NicknameCache,
+    NotesGenerator, PendingFile, QrzClient,
 };
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -94,15 +95,6 @@ async fn main() -> Result<()> {
         // Run connectivity diagnostics before each sync cycle
         run_connectivity_check().await;
 
-        // Create GitHub client fresh each cycle to avoid stale connections
-        let github = match GitHubClient::new(&config.github) {
-            Ok(client) => Some(client),
-            Err(e) => {
-                error!("Failed to create GitHub client: {}", e);
-                None
-            }
-        };
-
         let mut pending_files = Vec::new();
 
         // Get max concurrent lookups from config
@@ -114,11 +106,21 @@ async fn main() -> Result<()> {
 
         for org in &enabled_orgs {
             info!("[{}] Starting sync", org.name);
-            match prepare_org_update(org, cli.dry_run, &qrz_client, &nickname_cache, max_concurrent_lookups).await {
+            match prepare_org_update(
+                org,
+                &config.github,
+                cli.dry_run,
+                &qrz_client,
+                &nickname_cache,
+                max_concurrent_lookups,
+            )
+            .await
+            {
                 Ok(Some(pending)) => {
                     info!(
-                        "[{}] Prepared update for {} ({} members)",
-                        org.name, pending.path, pending.member_count
+                        "[{}] Prepared update for {} ({} members) -> {}/{}",
+                        org.name, pending.path, pending.member_count,
+                        pending.target.owner, pending.target.repo
                     );
                     pending_files.push(pending);
                 }
@@ -131,14 +133,35 @@ async fn main() -> Result<()> {
             }
         }
 
-        // Batch commit all pending files
-        if !pending_files.is_empty()
-            && !cli.dry_run
-            && let Some(ref github) = github
-        {
-            let message = build_commit_message(&pending_files);
-            if let Err(e) = github.batch_commit(&pending_files, &message).await {
-                error!("Batch commit failed: {:?}", e);
+        // Group pending files by target repository
+        if !pending_files.is_empty() && !cli.dry_run {
+            let mut files_by_target: HashMap<GitHubTarget, Vec<PendingFile>> = HashMap::new();
+            for file in pending_files {
+                files_by_target
+                    .entry(file.target.clone())
+                    .or_default()
+                    .push(file);
+            }
+
+            // Batch commit to each target repository
+            for (target, files) in files_by_target {
+                match GitHubClient::from_target(&target, &config.github) {
+                    Ok(client) => {
+                        let message = build_commit_message(&files);
+                        if let Err(e) = client.batch_commit(&files, &message).await {
+                            error!(
+                                "Batch commit to {}/{} failed: {:?}",
+                                target.owner, target.repo, e
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to create GitHub client for {}/{}: {}",
+                            target.owner, target.repo, e
+                        );
+                    }
+                }
             }
         }
 
@@ -173,11 +196,14 @@ fn build_commit_message(files: &[PendingFile]) -> String {
 
 async fn prepare_org_update(
     org: &qrqcrew_notes_daemon::config::Organization,
+    global_github: &qrqcrew_notes_daemon::config::GitHubConfig,
     dry_run: bool,
     qrz_client: &Option<QrzClient>,
     nickname_cache: &Arc<RwLock<NicknameCache>>,
     max_concurrent_lookups: usize,
 ) -> Result<Option<PendingFile>> {
+    // Resolve the effective GitHub target (per-org override or global fallback)
+    let target = GitHubTarget::resolve(org.github.as_ref(), global_github);
     // 1. Fetch roster based on source type
     let mut members = match org.source_type.as_str() {
         "html_table" => {
@@ -236,6 +262,7 @@ async fn prepare_org_update(
         content,
         org_label: org.label.clone(),
         member_count: members.len(),
+        target,
     }))
 }
 
