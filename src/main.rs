@@ -1,12 +1,15 @@
 use anyhow::Result;
 use clap::Parser;
 use qrqcrew_notes_daemon::{
-    Config, CsvFetcher, GitHubClient, HtmlFetcher, NotesGenerator, PendingFile,
+    Config, CsvFetcher, GitHubClient, HtmlFetcher, Member, NotesGenerator, PendingFile, QrzClient,
 };
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
+use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
@@ -53,6 +56,29 @@ async fn main() -> Result<()> {
         enabled_orgs.len()
     );
 
+    // Initialize QRZ client if configured
+    let qrz_client = match &config.qrz {
+        Some(qrz_config) if qrz_config.enabled => {
+            info!("QRZ lookups enabled");
+            Some(QrzClient::new(
+                qrz_config.username.clone(),
+                qrz_config.password.clone(),
+            ))
+        }
+        Some(_) => {
+            info!("QRZ lookups disabled in config");
+            None
+        }
+        None => {
+            info!("QRZ not configured, nicknames will not be fetched");
+            None
+        }
+    };
+
+    // Nickname cache persists across sync cycles
+    let nickname_cache: Arc<RwLock<HashMap<String, Option<String>>>> =
+        Arc::new(RwLock::new(HashMap::new()));
+
     loop {
         // Run connectivity diagnostics before each sync cycle
         run_connectivity_check().await;
@@ -70,7 +96,7 @@ async fn main() -> Result<()> {
 
         for org in &enabled_orgs {
             info!("[{}] Starting sync", org.name);
-            match prepare_org_update(org, cli.dry_run).await {
+            match prepare_org_update(org, cli.dry_run, &qrz_client, &nickname_cache).await {
                 Ok(Some(pending)) => {
                     info!(
                         "[{}] Prepared update for {} ({} members)",
@@ -130,9 +156,11 @@ fn build_commit_message(files: &[PendingFile]) -> String {
 async fn prepare_org_update(
     org: &qrqcrew_notes_daemon::config::Organization,
     dry_run: bool,
+    qrz_client: &Option<QrzClient>,
+    nickname_cache: &Arc<RwLock<HashMap<String, Option<String>>>>,
 ) -> Result<Option<PendingFile>> {
     // 1. Fetch roster based on source type
-    let members = match org.source_type.as_str() {
+    let mut members = match org.source_type.as_str() {
         "html_table" => {
             let callsign_idx = org.callsign_column_index.unwrap_or(1);
             let number_idx = org.number_column_index.unwrap_or(0);
@@ -169,7 +197,12 @@ async fn prepare_org_update(
         return Ok(None);
     }
 
-    // 2. Generate notes file
+    // 2. Enrich with nicknames from QRZ if available
+    if let Some(qrz) = qrz_client {
+        enrich_with_nicknames(&mut members, qrz, nickname_cache, &org.name).await;
+    }
+
+    // 3. Generate notes file
     let generator = NotesGenerator::new(org.emoji.clone(), org.label.clone(), None);
     let content = generator.generate(&members);
 
@@ -178,13 +211,77 @@ async fn prepare_org_update(
         return Ok(None);
     }
 
-    // 3. Return pending file for batch commit
+    // 4. Return pending file for batch commit
     Ok(Some(PendingFile {
         path: org.output_file.clone(),
         content,
         org_label: org.label.clone(),
         member_count: members.len(),
     }))
+}
+
+/// Enrich members with nicknames from QRZ lookups
+async fn enrich_with_nicknames(
+    members: &mut [Member],
+    qrz: &QrzClient,
+    cache: &Arc<RwLock<HashMap<String, Option<String>>>>,
+    org_name: &str,
+) {
+    let mut cache_hits = 0;
+    let mut lookups = 0;
+    let mut found = 0;
+
+    for member in members.iter_mut() {
+        // Check cache first
+        {
+            let cache_read = cache.read().await;
+            if let Some(cached) = cache_read.get(&member.callsign) {
+                member.nickname = cached.clone();
+                cache_hits += 1;
+                if cached.is_some() {
+                    found += 1;
+                }
+                continue;
+            }
+        }
+
+        // Rate limit: 100ms between lookups (~10 req/sec)
+        if lookups > 0 {
+            sleep(Duration::from_millis(100)).await;
+        }
+
+        // Perform QRZ lookup
+        lookups += 1;
+        let nickname = match qrz.lookup_nickname(&member.callsign).await {
+            Ok(name) => {
+                if name.is_some() {
+                    found += 1;
+                    debug!("[{}] Found nickname for {}: {:?}", org_name, member.callsign, name);
+                }
+                name
+            }
+            Err(e) => {
+                warn!(
+                    "[{}] QRZ lookup failed for {}: {}",
+                    org_name, member.callsign, e
+                );
+                None
+            }
+        };
+
+        // Cache the result (including None to avoid repeated failures)
+        {
+            let mut cache_write = cache.write().await;
+            cache_write.insert(member.callsign.clone(), nickname.clone());
+        }
+
+        member.nickname = nickname;
+    }
+
+    info!(
+        "[{}] QRZ enrichment: {} cache hits, {} lookups, {} nicknames found",
+        org_name, cache_hits, lookups, found
+    );
 }
 
 /// Run connectivity diagnostics to help debug network issues

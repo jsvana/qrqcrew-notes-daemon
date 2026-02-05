@@ -9,6 +9,7 @@ use tracing::{debug, warn};
 pub struct Member {
     pub callsign: String,
     pub member_id: String,
+    pub nickname: Option<String>,
 }
 
 pub struct CsvFetcher {
@@ -138,6 +139,7 @@ impl CsvFetcher {
                         members.push(Member {
                             callsign,
                             member_id,
+                            nickname: None,
                         });
                     }
                 }

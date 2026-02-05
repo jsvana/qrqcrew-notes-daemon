@@ -50,6 +50,15 @@ pub struct Config {
     pub organizations: Vec<Organization>,
     pub github: GitHubConfig,
     pub daemon: DaemonConfig,
+    pub qrz: Option<QrzConfig>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct QrzConfig {
+    pub username: String,
+    pub password: String,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -109,6 +118,20 @@ impl Config {
                         env_var, org.name
                     )
                 })?);
+            }
+        }
+
+        // Handle ${VAR} placeholder in QRZ credentials
+        if let Some(ref mut qrz) = config.qrz {
+            if qrz.username.starts_with("${") && qrz.username.ends_with("}") {
+                let env_var = &qrz.username[2..qrz.username.len() - 1];
+                qrz.username = std::env::var(env_var)
+                    .with_context(|| format!("Environment variable {} not set for QRZ username", env_var))?;
+            }
+            if qrz.password.starts_with("${") && qrz.password.ends_with("}") {
+                let env_var = &qrz.password[2..qrz.password.len() - 1];
+                qrz.password = std::env::var(env_var)
+                    .with_context(|| format!("Environment variable {} not set for QRZ password", env_var))?;
             }
         }
 
@@ -265,5 +288,81 @@ run_once = true
         assert_eq!(org_github.owner, Some("custom_owner".to_string()));
         assert_eq!(org_github.repo, Some("custom_repo".to_string()));
         assert!(org_github.branch.is_none()); // Not specified, should be None
+    }
+
+    #[test]
+    fn test_config_with_qrz() {
+        let config_content = r#"
+[[organizations]]
+name = "test"
+roster_url = "https://example.com/test.csv"
+callsign_column = "call"
+number_column = "number"
+emoji = "🔥"
+label = "Test"
+output_file = "test.txt"
+
+[github]
+token = "test_token"
+owner = "testowner"
+repo = "testrepo"
+branch = "main"
+commit_author_name = "Test Bot"
+commit_author_email = "test@example.com"
+
+[daemon]
+sync_interval_secs = 3600
+run_once = true
+
+[qrz]
+username = "testuser"
+password = "testpass"
+enabled = true
+"#;
+
+        let mut temp_file = Builder::new().suffix(".toml").tempfile().unwrap();
+        temp_file.write_all(config_content.as_bytes()).unwrap();
+
+        let config = Config::load(Some(temp_file.path().to_path_buf())).unwrap();
+
+        assert!(config.qrz.is_some());
+        let qrz = config.qrz.unwrap();
+        assert_eq!(qrz.username, "testuser");
+        assert_eq!(qrz.password, "testpass");
+        assert!(qrz.enabled);
+    }
+
+    #[test]
+    fn test_config_without_qrz() {
+        let config_content = r#"
+[[organizations]]
+name = "test"
+roster_url = "https://example.com/test.csv"
+callsign_column = "call"
+number_column = "number"
+emoji = "🔥"
+label = "Test"
+output_file = "test.txt"
+
+[github]
+token = "test_token"
+owner = "testowner"
+repo = "testrepo"
+branch = "main"
+commit_author_name = "Test Bot"
+commit_author_email = "test@example.com"
+
+[daemon]
+sync_interval_secs = 3600
+run_once = true
+"#;
+
+        let mut temp_file = Builder::new().suffix(".toml").tempfile().unwrap();
+        temp_file.write_all(config_content.as_bytes()).unwrap();
+
+        let config = Config::load(Some(temp_file.path().to_path_buf())).unwrap();
+
+        // QRZ should be None when not configured
+        assert!(config.qrz.is_none());
     }
 }

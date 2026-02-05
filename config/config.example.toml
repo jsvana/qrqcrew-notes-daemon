@@ -55,3 +55,10 @@ commit_author_email = "qrqcrew-bot@noreply.github.com"
 [daemon]
 sync_interval_secs = 3600  # 1 hour
 run_once = false
+
+# QRZ.com API for nickname lookups (optional)
+# Requires QRZ XML subscription for full data access
+[qrz]
+username = "${QRZ_USERNAME}"
+password = "${QRZ_PASSWORD}"
+enabled = true

@@ -114,6 +114,7 @@ impl HtmlFetcher {
             members.push(Member {
                 callsign,
                 member_id,
+                nickname: None,
             });
         }
 

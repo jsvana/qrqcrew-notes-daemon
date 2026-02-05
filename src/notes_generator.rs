@@ -36,9 +36,15 @@ impl NotesGenerator {
         sorted.sort_by(|a, b| a.callsign.cmp(&b.callsign));
 
         for member in sorted {
+            let nickname_part = member
+                .nickname
+                .as_ref()
+                .map(|n| format!("{} ", n))
+                .unwrap_or_default();
+
             output.push_str(&format!(
-                "{} {} {} #{}\n",
-                member.callsign, self.emoji, self.label, member.member_id
+                "{} {} {}{} #{}\n",
+                member.callsign, self.emoji, nickname_part, self.label, member.member_id
             ));
         }
 
@@ -62,14 +68,17 @@ mod tests {
             Member {
                 callsign: "W6JSV".to_string(),
                 member_id: "10".to_string(),
+                nickname: None,
             },
             Member {
                 callsign: "K4MW".to_string(),
                 member_id: "1".to_string(),
+                nickname: Some("Mike".to_string()),
             },
             Member {
                 callsign: "WN7JT".to_string(),
                 member_id: "2".to_string(),
+                nickname: None,
             },
         ];
 
@@ -87,9 +96,9 @@ mod tests {
             .collect();
 
         assert_eq!(lines.len(), 3);
-        assert_eq!(lines[0], "K4MW ⚓ QRQ Crew #1");
-        assert_eq!(lines[1], "W6JSV ⚓ QRQ Crew #10");
-        assert_eq!(lines[2], "WN7JT ⚓ QRQ Crew #2");
+        assert_eq!(lines[0], "K4MW ⚓ Mike QRQ Crew #1"); // Has nickname
+        assert_eq!(lines[1], "W6JSV ⚓ QRQ Crew #10"); // No nickname
+        assert_eq!(lines[2], "WN7JT ⚓ QRQ Crew #2"); // No nickname
     }
 
     #[test]
@@ -103,6 +112,7 @@ mod tests {
         let members = vec![Member {
             callsign: "W6JSV".to_string(),
             member_id: "1234".to_string(),
+            nickname: None,
         }];
 
         let output = generator.generate(&members);
