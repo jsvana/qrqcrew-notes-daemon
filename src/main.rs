@@ -1,11 +1,13 @@
 use anyhow::Result;
 use clap::Parser;
 use futures::stream::{self, StreamExt};
+use qrqcrew_notes_daemon::nickname_cache::CachedLookup;
+use qrqcrew_notes_daemon::qrz::QrzInfo;
 use qrqcrew_notes_daemon::{
     Config, CsvFetcher, GitHubClient, GitHubTarget, HtmlFetcher, Member, NicknameCache,
     NotesGenerator, PendingFile, QrzClient,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -279,120 +281,241 @@ async fn prepare_org_update(
 /// Default max concurrent QRZ lookups
 const DEFAULT_MAX_CONCURRENT_LOOKUPS: usize = 10;
 
-/// Enrich members with nicknames from QRZ lookups (parallel with rate limiting)
+/// One QRZ result keyed by the queried (roster) callsign.
+#[derive(Debug, Clone)]
+enum LookupResult {
+    Found(QrzInfo),
+    NotFound,
+    Error,
+}
+
+/// Enrich members with QRZ data (current callsign + nickname).
+///
+/// For every member: look up QRZ once. Apply the canonical `<call>` back
+/// onto the member (so retired/aliased roster entries become the operator's
+/// current callsign in the generated PoLo notes), and apply `<fname>` as
+/// the nickname. After remapping, dedupe by current callsign — if two
+/// roster rows resolve to the same operator, the lower member number wins.
 async fn enrich_with_nicknames(
-    members: &mut [Member],
+    members: &mut Vec<Member>,
     qrz: &QrzClient,
     cache: &Arc<RwLock<NicknameCache>>,
     org_name: &str,
     max_concurrent: usize,
 ) {
-    let mut cache_hits = 0;
-    let mut found = 0;
+    // Collect roster callsigns and split into cached / uncached.
+    let queried_callsigns: Vec<String> = members.iter().map(|m| m.callsign.clone()).collect();
 
-    // First pass: apply cached values and collect uncached callsigns
-    let mut uncached_indices = Vec::new();
+    let mut cache_hits = 0;
+    let mut cached_results: HashMap<String, LookupResult> = HashMap::new();
+    let mut uncached: Vec<String> = Vec::new();
+
     {
         let cache_read = cache.read().await;
-        for (idx, member) in members.iter_mut().enumerate() {
-            if let Some(nickname) = cache_read.get(&member.callsign) {
-                member.nickname = nickname.clone();
-                cache_hits += 1;
-                if nickname.is_some() {
-                    found += 1;
+        for cs in &queried_callsigns {
+            match cache_read.get(cs) {
+                Some(CachedLookup::Found {
+                    current_call,
+                    nickname,
+                }) => {
+                    cache_hits += 1;
+                    cached_results.insert(
+                        cs.clone(),
+                        LookupResult::Found(QrzInfo {
+                            current_call,
+                            nickname,
+                        }),
+                    );
                 }
-            } else {
-                uncached_indices.push(idx);
+                Some(CachedLookup::NotFound) => {
+                    cache_hits += 1;
+                    cached_results.insert(cs.clone(), LookupResult::NotFound);
+                }
+                None => uncached.push(cs.clone()),
             }
         }
     }
 
-    let lookups_needed = uncached_indices.len();
-    if lookups_needed == 0 {
+    let lookups_needed = uncached.len();
+    if lookups_needed > 0 {
         info!(
-            "[{}] QRZ enrichment: {} cache hits, 0 lookups needed, {} nicknames found",
-            org_name, cache_hits, found
+            "[{}] QRZ enrichment: {} cache hits, {} lookups needed (max {} concurrent)",
+            org_name, cache_hits, lookups_needed, max_concurrent
         );
-        return;
+    } else {
+        info!(
+            "[{}] QRZ enrichment: {} cache hits, 0 lookups needed",
+            org_name, cache_hits
+        );
     }
 
-    info!(
-        "[{}] QRZ enrichment: {} cache hits, {} lookups needed (max {} concurrent)",
-        org_name, cache_hits, lookups_needed, max_concurrent
-    );
-
-    // Prepare callsigns for parallel lookup
-    let callsigns: Vec<String> = uncached_indices
-        .iter()
-        .map(|&idx| members[idx].callsign.clone())
-        .collect();
-
-    // Semaphore for rate limiting concurrent requests
+    // Parallel QRZ lookups for the uncached set.
     let semaphore = Arc::new(Semaphore::new(max_concurrent));
-
-    // Perform parallel lookups
-    let results: Vec<(String, Option<String>)> = stream::iter(callsigns)
+    let fresh_results: Vec<(String, LookupResult)> = stream::iter(uncached)
         .map(|callsign| {
             let qrz = qrz.clone();
             let semaphore = semaphore.clone();
             let org_name = org_name.to_string();
             async move {
-                // Acquire semaphore permit (rate limiting)
                 let _permit = semaphore.acquire().await.unwrap();
-
-                // Small delay between requests to avoid hammering QRZ
                 sleep(Duration::from_millis(50)).await;
 
-                let nickname = match qrz.lookup_nickname(&callsign).await {
-                    Ok(name) => {
-                        if name.is_some() {
-                            debug!("[{}] Found nickname for {}: {:?}", org_name, callsign, name);
-                        }
-                        name
+                let result = match qrz.lookup(&callsign).await {
+                    Ok(Some(info)) => {
+                        debug!(
+                            "[{}] QRZ {} -> current_call={} nickname={:?}",
+                            org_name, callsign, info.current_call, info.nickname
+                        );
+                        LookupResult::Found(info)
+                    }
+                    Ok(None) => {
+                        debug!("[{}] QRZ {} not found", org_name, callsign);
+                        LookupResult::NotFound
                     }
                     Err(e) => {
                         warn!("[{}] QRZ lookup failed for {}: {}", org_name, callsign, e);
-                        None
+                        LookupResult::Error
                     }
                 };
 
-                (callsign, nickname)
+                (callsign, result)
             }
         })
         .buffer_unordered(max_concurrent)
         .collect()
         .await;
 
-    // Apply results to members and update cache
-    let mut new_found = 0;
+    // Persist new lookups (don't cache transient errors).
     {
         let mut cache_write = cache.write().await;
-        for (callsign, nickname) in &results {
-            cache_write.insert(callsign, nickname.clone());
-            if nickname.is_some() {
-                new_found += 1;
+        for (queried, result) in &fresh_results {
+            match result {
+                LookupResult::Found(info) => cache_write.insert_found(queried, info),
+                LookupResult::NotFound => cache_write.insert_not_found(queried),
+                LookupResult::Error => {} // try again next cycle
             }
         }
-        // Save cache after batch of lookups
         if let Err(e) = cache_write.save() {
-            warn!("[{}] Failed to save nickname cache: {}", org_name, e);
+            warn!("[{}] Failed to save QRZ cache: {}", org_name, e);
         }
     }
 
-    // Build a map for quick lookup
-    let results_map: std::collections::HashMap<_, _> = results.into_iter().collect();
+    // Build a unified queried -> result map.
+    let mut by_queried: HashMap<String, LookupResult> = cached_results;
+    for (q, r) in fresh_results {
+        by_queried.insert(q, r);
+    }
 
-    // Apply to members
-    for &idx in &uncached_indices {
-        if let Some(nickname) = results_map.get(&members[idx].callsign) {
-            members[idx].nickname = nickname.clone();
+    // Apply: replace member.callsign with QRZ's current_call, set nickname.
+    let mut remapped = 0;
+    let mut nicknames_found = 0;
+    for member in members.iter_mut() {
+        match by_queried.get(&member.callsign) {
+            Some(LookupResult::Found(info)) => {
+                if !info.current_call.eq_ignore_ascii_case(&member.callsign) {
+                    info!(
+                        "[{}] Remapping {} -> {} (operator's current callsign per QRZ)",
+                        org_name, member.callsign, info.current_call
+                    );
+                    member.callsign = info.current_call.clone();
+                    remapped += 1;
+                }
+                if let Some(nick) = &info.nickname {
+                    member.nickname = Some(nick.clone());
+                    nicknames_found += 1;
+                }
+            }
+            Some(LookupResult::NotFound) | Some(LookupResult::Error) | None => {}
         }
+    }
+
+    // Dedupe: if remap produced two rows with the same callsign, keep the
+    // one with the numerically lower member id (typical convention: lower
+    // number = older membership). Stable: input order otherwise preserved.
+    let dropped = dedupe_by_callsign(members);
+    if dropped > 0 {
+        info!(
+            "[{}] Dropped {} duplicate row(s) after callsign remap",
+            org_name, dropped
+        );
     }
 
     info!(
-        "[{}] QRZ enrichment complete: {} cache hits, {} lookups, {} new nicknames found",
-        org_name, cache_hits, lookups_needed, new_found
+        "[{}] QRZ enrichment complete: {} nicknames found, {} callsigns remapped",
+        org_name, nicknames_found, remapped
     );
+}
+
+/// Drop duplicate rows that share a callsign after remapping. Returns the
+/// number of rows dropped. Within a duplicate group, keeps the row whose
+/// `member_id` parses to the smallest integer (or the first row if none
+/// parse).
+fn dedupe_by_callsign(members: &mut Vec<Member>) -> usize {
+    if members.len() < 2 {
+        return 0;
+    }
+    // Find best index per callsign.
+    let mut best: HashMap<String, usize> = HashMap::new();
+    for (idx, m) in members.iter().enumerate() {
+        let key = m.callsign.to_uppercase();
+        match best.get(&key) {
+            None => {
+                best.insert(key, idx);
+            }
+            Some(&existing) => {
+                let cur_n = members[idx].member_id.parse::<u64>().ok();
+                let exi_n = members[existing].member_id.parse::<u64>().ok();
+                let cur_better = match (cur_n, exi_n) {
+                    (Some(a), Some(b)) => a < b,
+                    (Some(_), None) => true,
+                    _ => false,
+                };
+                if cur_better {
+                    best.insert(key, idx);
+                }
+            }
+        }
+    }
+    let keep: HashSet<usize> = best.values().copied().collect();
+    let original_len = members.len();
+    let mut idx = 0;
+    members.retain(|_| {
+        let k = keep.contains(&idx);
+        idx += 1;
+        k
+    });
+    original_len - members.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn m(callsign: &str, member_id: &str) -> Member {
+        Member {
+            callsign: callsign.to_string(),
+            member_id: member_id.to_string(),
+            nickname: None,
+        }
+    }
+
+    #[test]
+    fn dedupe_keeps_lowest_member_id() {
+        let mut members = vec![m("W6JY", "100"), m("W6JY", "16"), m("K4MW", "1")];
+        let dropped = dedupe_by_callsign(&mut members);
+        assert_eq!(dropped, 1);
+        assert_eq!(members.len(), 2);
+        let w6jy = members.iter().find(|m| m.callsign == "W6JY").unwrap();
+        assert_eq!(w6jy.member_id, "16");
+    }
+
+    #[test]
+    fn dedupe_no_duplicates_is_noop() {
+        let mut members = vec![m("W6JY", "16"), m("K4MW", "1")];
+        let dropped = dedupe_by_callsign(&mut members);
+        assert_eq!(dropped, 0);
+        assert_eq!(members.len(), 2);
+    }
 }
 
 /// Run connectivity diagnostics to help debug network issues
